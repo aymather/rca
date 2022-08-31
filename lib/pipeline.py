@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-import utils.functions as util
+from .functions import chunker
 from .env import DATA_FOLDER
 from .PipelineManager import PipelineManager
 from .Sftp import Sftp
@@ -349,7 +349,7 @@ def cleanArtists(df):
     streams['unified_artist_id'] = meta['unified_artist_id']
     
     # Get the date indicies for the daily streaming data
-    dateCols = util.getDateCols(streams)
+    dateCols = getDateCols(streams)
     
     # Add a column to indicate the report date
     meta['report_date'] = pd.to_datetime(dateCols[0])
@@ -739,7 +739,7 @@ def prepareSongData(df):
     meta, total, premium, ad_supported = cleanSongs(df)
 
     # Get the date indicies for the daily streaming data
-    dateCols = util.getDateCols(total)
+    dateCols = getDateCols(total)
 
     # Fill empty release dates with most recent date
     meta['release_date'] = pd.to_datetime(meta['release_date'].fillna(dateCols[0]))
@@ -1139,7 +1139,7 @@ def getSpotifySongs(df):
         # Loop through in chunks of 20
         count = 0
         data = []
-        chunks = util.chunker(album_ids, 20)
+        chunks = chunker(album_ids, 20)
         for i, chunk in enumerate(chunks):
 
             if random.random() < 0.1:
@@ -1175,7 +1175,7 @@ def getSpotifySongs(df):
         count = 0
         data = []
         max_chunk = 100
-        chunks = util.chunker(track_ids, max_chunk)
+        chunks = chunker(track_ids, max_chunk)
         for i, chunk in enumerate(chunks):
 
             if random.random() < 0.1:
@@ -1307,7 +1307,7 @@ def bulkGetSpotifyArtistInfo(df, spotify):
     count = 0
     data = []
     max_chunk = 50
-    chunks = util.chunker(artist_ids, max_chunk)
+    chunks = chunker(artist_ids, max_chunk)
     for i, chunk in enumerate(chunks):
 
         if random.random() < 0.1:
@@ -1461,7 +1461,7 @@ def getSpotifyAlbumInfo(df, spotify):
     # Loop through in chunks of 20
     count = 0
     data = []
-    chunks = util.chunker(album_ids, 20)
+    chunks = chunker(album_ids, 20)
     for i, chunk in enumerate(chunks):
 
         if random.random() < 0.1:
@@ -1814,7 +1814,7 @@ def cacheSpotifyAlbums(db, pipe):
     count = 0
     data = []
     album_ids = df['spotify_album_id'].values.tolist()
-    chunks = util.chunker(album_ids, 20)
+    chunks = chunker(album_ids, 20)
     for i, chunk in enumerate(chunks):
 
         if random.random() < 0.1:
