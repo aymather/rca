@@ -1,5 +1,4 @@
 from .functions import chunker
-from .env import DATA_FOLDER
 from .PipelineManager import PipelineManager
 from .Sftp import Sftp
 from .Spotify import Spotify
