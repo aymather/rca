@@ -370,7 +370,7 @@ def filterBySignedArtistsList(df, db):
     
     return df
 
-def prepareArtistData(fullfile):
+def prepareArtistData(fullfile, db):
     
     time = Time()
 
@@ -542,7 +542,7 @@ def processArtists(db, pipe):
     time = Time()
 
     # Clean dataframe
-    meta, streams = prepareArtistData(pipe.fullfiles['artist'])
+    meta, streams = prepareArtistData(pipe.fullfiles['artist'], db)
 
     # Database updates
     artistsDbUpdates(db, meta, streams)
