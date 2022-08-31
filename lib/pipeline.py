@@ -381,7 +381,7 @@ def prepareArtistData(fullfile):
     meta, streams = cleanArtists(df)
     
     # Add the 'signed' status to the artist
-    meta = filterBySignedArtistsList(meta)
+    meta = filterBySignedArtistsList(meta, db)
     
     print(f'Finished cleaning artist data')
     time.elapsed()
