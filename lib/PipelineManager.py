@@ -1,4 +1,4 @@
-from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, NIELSEN_US_DAILY_ARCHIVE_FOLDER, REPORTS_FOLDER
+from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, REPORTS_FOLDER
 from simple_chalk import chalk
 from datetime import datetime
 from zipfile import ZipFile
@@ -6,6 +6,7 @@ from .Time import Time
 import glob
 import os
 
+NIELSEN_US_DAILY_ARCHIVE_FOLDER = '/' # location on nielsen's remote sftp server where the US daily files are located
 NIELSEN_US_DAILY_ZIP_FILENAME = 'RCA_AR_Daily_Report_{}.zip'
 NIELSEN_US_DAILY_ARTIST_FILENAME = 'RCA_AR_Artist_ODA_{}.csv'
 NIELSEN_US_DAILY_SONG_FILENAME_OLD = 'RCA_AR_SONG_ODA_{}.csv'

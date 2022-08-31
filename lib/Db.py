@@ -106,7 +106,7 @@ class Db:
 
         return pd.DataFrame(data, columns=cols)
 
-    def big_insert(self, df, table):
+    def big_insert(self, df, table, commit=False):
 
         """
             Wrapper method around the psycopg2 copy_expert method
@@ -121,6 +121,10 @@ class Db:
 
         # Copy to database
         self.copy_expert(df, string)
+
+        # Commit changes if we specify it
+        if commit is True:
+            self.commit()
 
     def copy_expert(self, df, string):
 

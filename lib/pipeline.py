@@ -149,13 +149,13 @@ def validateSession(pipe):
     
     print('All checks passed!')
 
-def findSignedByCopyrights(df):
+def findSignedByCopyrights(df, db):
 
     """
 
         Basic check between copyrights and our list of labels.
 
-        Uses: list_of_labels.csv
+        Uses: misc.list_of_labels
 
         @param df(copyrights, signed, *)
         @returns df(copyrights, signed, *)
@@ -180,8 +180,8 @@ def findSignedByCopyrights(df):
             return False
 
     # Load in nielsen_labels
-    nielsen_labels = pd.read_csv(os.path.join(DATA_FOLDER, 'list_of_labels.csv'))
-    labels = nielsen_labels['Label'].values
+    nielsen_labels = db.execute('select * from misc.list_of_labels')
+    labels = nielsen_labels['label'].values
 
     # Fill na values to avoid errors
     df['copyrights'] = df['copyrights'].fillna('')
@@ -191,14 +191,14 @@ def findSignedByCopyrights(df):
 
     return df
 
-def basicSignedCheck(df):
+def basicSignedCheck(df, db):
 
     """
         @param | df with columns: copyrights(str) | signed(bool)
     """
 
     # Apply another layer of detecting 'signed' with a running list of signed artists
-    def filterBySignedArtistsList(df):
+    def filterBySignedArtistsList(df, db):
         
         def filterBySignedArtistsListFilter(row, fuzz):
     
@@ -218,7 +218,7 @@ def basicSignedCheck(df):
                 return False
 
         # Read in the csv for signed_artists
-        artists_df = pd.read_csv(os.path.join(DATA_FOLDER, 'signed_artists.csv'))
+        artists_df = db.execute('select * from misc.signed_artists')
         artists = artists_df.drop_duplicates(keep='first').artist.values
 
         # Create fuzzyset
@@ -229,10 +229,10 @@ def basicSignedCheck(df):
 
         return df
     
-    df = findSignedByCopyrights(df)
+    df = findSignedByCopyrights(df, db)
     
     if 'artist' in df:
-        df = filterBySignedArtistsList(df)
+        df = filterBySignedArtistsList(df, db)
     
     return df
 
@@ -360,10 +360,10 @@ def cleanArtists(df):
     return meta, streams
 
 # Apply another layer of detecting 'signed' with a running list of signed artists
-def filterBySignedArtistsList(df):
+def filterBySignedArtistsList(df, db):
     
     # Read in the signed artists that are tracked
-    artists_df = pd.read_csv(os.path.join(DATA_FOLDER, 'signed.csv'))
+    artists_df = db.execute('select * from misc.signed_artists')
     artists = artists_df['artist'].values
     
     # Check if they're in our signed list
@@ -550,7 +550,7 @@ def processArtists(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Artists processed'))
 
-def filterSignedSongs(df):
+def filterSignedSongs(df, db):
     
     def filterSignedFilter(row, labels, labels_fuzz, artists_fuzz):
     
@@ -580,14 +580,14 @@ def filterSignedSongs(df):
         return True if match.lower() == artist.lower() or ratio >= 0.95 else False
     
     # Load in nielsen_labels
-    nielsen_labels = pd.read_csv(os.path.join(DATA_FOLDER, 'nielsen_labels.csv'))
-    labels = nielsen_labels['Label'].values
+    nielsen_labels = db.execute('select * from misc.nielsen_labels')
+    labels = nielsen_labels['label'].values
     
     # Create Fuzz
     labels_fuzz = Fuzz(labels)
     
     # Read in the csv for signed_artists
-    artists_df = pd.read_csv(os.path.join(DATA_FOLDER, 'signed_artists.csv'))
+    artists_df = db.execute('select * from misc.signed_artists')
     artists = artists_df.drop_duplicates(keep='first').artist.values
     
     # Create fuzzyset
@@ -723,15 +723,22 @@ def cleanSongs(df):
     
     return meta, total, premium, ad_supported
 
-def appendToSignedArtistList(df):
+def appendToSignedArtistList(df, db):
     
     # Append to the signed artists csv
     signed_df = df.loc[df['signed'] == True, ['artist']].reset_index(drop=True)
-    signed_csv = pd.read_csv(os.path.join(DATA_FOLDER, 'signed.csv'))
-    signed_csv = pd.concat([signed_csv, signed_df]).drop_duplicates(keep='first').reset_index(drop=True)
-    signed_csv.to_csv(os.path.join(DATA_FOLDER, 'signed.csv'), index=False)
 
-def prepareSongData(df):
+    # Get the existing signed artists
+    signed_existing = db.execute('select * from misc.signed_artists')
+
+    # Get the artists in our new df that don't exist already
+    new_signed = signed_df[~signed_df['artist'].isin(signed_existing['artist'])].reset_index(drop=True)
+    
+    # Upload newly signed artists to the tracker
+    db.big_insert(new_signed, 'misc.signed_artists')
+    print(f'Inserted {new_signed.shape[0]} new signed artists to tracker...')
+
+def prepareSongData(df, db):
     
     time = Time()
     
@@ -748,10 +755,10 @@ def prepareSongData(df):
     meta['report_date'] = pd.to_datetime(dateCols[0])
 
     # Mark who is signed and who isn't
-    meta = filterSignedSongs(meta)
+    meta = filterSignedSongs(meta, db)
 
     # Add signed artists to running list
-    appendToSignedArtistList(meta)
+    appendToSignedArtistList(meta, db)
     
     # Pivot all the streaming data from wide to long format
     total = total.melt(id_vars='unified_song_id', var_name='date', value_name='streams')
@@ -951,7 +958,7 @@ def processSongs(db, pipe):
     df = pd.read_csv(pipe.fullfiles['song'], encoding='UTF-16')
 
     # Clean data
-    meta, streams = prepareSongData(df)
+    meta, streams = prepareSongData(df, db)
 
     # Database updates
     songsDbUpdates(db, meta, streams)
@@ -1863,19 +1870,19 @@ def filterSignedFromSpotifyCopyrights(db, pipe):
         else:
             return False
 
-    def aaronMethodNielsenLabelsSignedToSong(df):
+    def aaronMethodNielsenLabelsSignedToSong(df, db):
         
         # Load in nielsen_labels
-        nielsen_labels = pd.read_csv(os.path.join(DATA_FOLDER, 'list_of_labels.csv'))
-        labels = [i.lower() for i in nielsen_labels['Label'].values]
+        nielsen_labels = db.execute('select * from misc.list_of_labels')
+        labels = [i.lower() for i in nielsen_labels['label'].values]
         
         df['signed'] = df.apply(aaronMethodNielsenLabelsSignedToSongFilter, labels=labels, axis=1)
         
         return df
 
-    def filterSigned(df):
+    def filterSigned(df, db):
 
-        df = aaronMethodNielsenLabelsSignedToSong(df)
+        df = aaronMethodNielsenLabelsSignedToSong(df, db)
         return df[df['signed'] == True].reset_index(drop=True)
 
     # Get artists to check
@@ -1920,8 +1927,8 @@ def filterSignedFromSpotifyCopyrights(db, pipe):
     songs = db.execute(string)
 
     # Perform filter
-    artists = filterSigned(artists).drop(columns=['artist', 'spotify_copyrights', 'signed'])
-    songs = filterSigned(songs).drop(columns=['artist', 'title', 'spotify_copyrights', 'signed'])
+    artists = filterSigned(artists, db).drop(columns=['artist', 'spotify_copyrights', 'signed'])
+    songs = filterSigned(songs, db).drop(columns=['artist', 'title', 'spotify_copyrights', 'signed'])
 
     # Create temp tables
     string = """
@@ -2259,9 +2266,9 @@ def updateSpotifyCharts(db, pipe):
         return pd.DataFrame(genre_data)
         
     # Read in our outlines
-    flagship_outline = pd.read_csv('./sample_data/flagship_outline.csv').to_dict('records')
-    city_outline = pd.read_csv('./sample_data/city_outline.csv').to_dict('records')
-    genre_outline = pd.read_csv('./sample_data/genre_outline.csv').to_dict('records')
+    flagship_outline = db.execute('select * from misc.spotify_flagship_outline')
+    city_outline = db.execute('select * from misc.spotify_city_outline')
+    genre_outline = db.execute('select * from misc.spotify_genre_outline')
 
     # Init spotify client
     spotify = Spotify()
@@ -2335,7 +2342,7 @@ def updateSpotifyCharts(db, pipe):
     df = pd.merge(data, spotify_df, on='spotify_id', how='left')
 
     # Last we need to do a final check of signed/unsigned stuff
-    df = basicSignedCheck(df)
+    df = basicSignedCheck(df, db)
 
     # Clean types
     df['nielsen_id'] = df['nielsen_id'].astype('Int64')
