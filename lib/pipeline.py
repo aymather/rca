@@ -19,7 +19,7 @@ def getDateCols(cols):
     # Convert a string to a date object
     def str2Date(s):
         try:
-            return datetime.strptime(s, date_format())
+            return datetime.strptime(s, '%m/%d/%Y')
         except ValueError:
             try:
                 return datetime.strptime(s, '%Y-%m-%d')
