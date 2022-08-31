@@ -586,7 +586,7 @@ def filterSignedSongs(df, db):
     labels_fuzz = Fuzz(labels)
     
     # Read in the csv for signed_artists
-    artists_df = db.execute('select * from misc.signed_artists')
+    artists_df = db.execute('select * from misc.signed_artists where artist is not null')
     artists = artists_df.drop_duplicates(keep='first').artist.values
     
     # Create fuzzyset
@@ -731,7 +731,7 @@ def appendToSignedArtistList(df, db):
     signed_existing = db.execute('select * from misc.signed_artists')
 
     # Get the artists in our new df that don't exist already
-    new_signed = signed_df[~signed_df['artist'].isin(signed_existing['artist'])].reset_index(drop=True)
+    new_signed = signed_df[(~signed_df['artist'].isin(signed_existing['artist'])) & (~signed_df['artist'].isnull())].reset_index(drop=True)
     
     # Upload newly signed artists to the tracker
     db.big_insert(new_signed, 'misc.signed_artists')
