@@ -1,6 +1,8 @@
 psycopg2-binary
 pandas
 numpy
+cython
+simple_chalk
 fuzzyset
 pysftp
 spotipy
