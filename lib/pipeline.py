@@ -1813,6 +1813,9 @@ def cacheSpotifyAlbums(db, pipe):
     """
     df = db.execute(string)
 
+    if df.empty:
+        return
+
     # Init spotify client
     spotify = Spotify()
 
