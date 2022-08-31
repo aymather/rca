@@ -1,14 +1,14 @@
-from datetime import datetime, timedelta
 from .functions import chunker
 from .env import DATA_FOLDER
 from .PipelineManager import PipelineManager
 from .Sftp import Sftp
 from .Spotify import Spotify
-from utils.Fuzz import Fuzz
+from .Fuzz import Fuzz
 from .Time import Time
+from .Db import Db
+from datetime import datetime, timedelta
 from uuid import uuid4
 import pandas as pd
-from .Db import Db
 import random
 import math
 import os
