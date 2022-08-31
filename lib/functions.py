@@ -7,3 +7,7 @@ def clear():
 
 def createId(str_size = 7):
     return ''.join(random.choice(string.ascii_uppercase) for x in range(str_size))
+
+# Loop over an array in chunks
+def chunker(seq, size):
+    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
