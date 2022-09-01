@@ -1,7 +1,20 @@
-from .env import RCA_NIELSEN_US_DAILY_SFTP_PASSWORD, RCA_NIELSEN_US_DAILY_SFTP_USERNAME
 import pysftp
 import paramiko
 import subprocess
+from .env import (
+    RCA_NIELSEN_US_DAILY_SFTP_USERNAME, 
+    RCA_NIELSEN_US_DAILY_SFTP_PASSWORD, 
+    RCA_NIELSEN_EU_DAILY_SFTP_USERNAME, 
+    RCA_NIELSEN_EU_DAILY_SFTP_PASSWORD, 
+    RCA_NIELSEN_NE_ASIA_DAILY_SFTP_USERNAME, 
+    RCA_NIELSEN_NE_ASIA_DAILY_SFTP_PASSWORD, 
+    RCA_NIELSEN_SE_ASIA_DAILY_SFTP_USERNAME, 
+    RCA_NIELSEN_SE_ASIA_DAILY_SFTP_PASSWORD, 
+    RCA_NIELSEN_LATIN_AMERICA_DAILY_SFTP_USERNAME, 
+    RCA_NIELSEN_LATIN_AMERICA_DAILY_SFTP_PASSWORD, 
+    RCA_NIELSEN_EMERGING_DAILY_SFTP_USERNAME, 
+    RCA_NIELSEN_EMERGING_DAILY_SFTP_PASSWORD
+)
 
 
 CONNECTIONS = {
@@ -10,6 +23,36 @@ CONNECTIONS = {
         'port': 22,
         'username': RCA_NIELSEN_US_DAILY_SFTP_USERNAME,
         'password': RCA_NIELSEN_US_DAILY_SFTP_PASSWORD
+    },
+    'eu_daily': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_EU_DAILY_SFTP_USERNAME,
+        'password': RCA_NIELSEN_EU_DAILY_SFTP_PASSWORD
+    },
+    'ne_asia_daily': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_NE_ASIA_DAILY_SFTP_USERNAME,
+        'password': RCA_NIELSEN_NE_ASIA_DAILY_SFTP_PASSWORD
+    },
+    'se_asia_daily': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_SE_ASIA_DAILY_SFTP_USERNAME,
+        'password': RCA_NIELSEN_SE_ASIA_DAILY_SFTP_PASSWORD
+    },
+    'lat_am_daily': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_LATIN_AMERICA_DAILY_SFTP_USERNAME,
+        'password': RCA_NIELSEN_LATIN_AMERICA_DAILY_SFTP_PASSWORD
+    },
+    'emerging_daily': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_EMERGING_DAILY_SFTP_USERNAME,
+        'password': RCA_NIELSEN_EMERGING_DAILY_SFTP_PASSWORD
     }
 }
 

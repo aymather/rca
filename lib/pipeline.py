@@ -2268,9 +2268,9 @@ def updateSpotifyCharts(db, pipe):
         return pd.DataFrame(genre_data)
         
     # Read in our outlines
-    flagship_outline = db.execute('select * from misc.spotify_flagship_outline')
-    city_outline = db.execute('select * from misc.spotify_city_outline')
-    genre_outline = db.execute('select * from misc.spotify_genre_outline')
+    flagship_outline = db.execute('select * from misc.spotify_flagship_outline').to_dict('records')
+    city_outline = db.execute('select * from misc.spotify_city_outline').to_dict('records')
+    genre_outline = db.execute('select * from misc.spotify_genre_outline').to_dict('records')
 
     # Init spotify client
     spotify = Spotify()
