@@ -6,3 +6,4 @@ from .lib.Time import Time
 from .lib.Sftp import Sftp
 from .lib.PipelineManager import PipelineManager
 from .lib.pipeline import *
+from .lib.global_pipeline import *

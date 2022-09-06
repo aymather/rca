@@ -460,7 +460,6 @@ def artistsDbUpdates(db, meta, streams):
     db.execute(string)
     db.big_insert(streams, 'tmp_streams')
     
-
     # Streaming inserts / updates
     string = """
         create temp table streams as (
@@ -468,19 +467,14 @@ def artistsDbUpdates(db, meta, streams):
                 m.id as artist_id,
                 ts.date,
                 ts.streams,
+                case
+                    when existing_streams.artist_id is null then false
+                    else true
+                end as record_exists,
                 existing_streams.streams as existing_streams
             from tmp_streams ts
             left join nielsen_artist.meta m on ts.unified_artist_id = m.unified_artist_id
-            left join (
-                select s.*
-                from nielsen_artist.streams s
-                where date > now() - interval '20 days'
-                    and artist_id in (
-                        select m.id
-                        from tmp_meta tm
-                        left join nielsen_artist.meta m on tm.unified_artist_id = m.unified_artist_id
-                    )
-            ) existing_streams on m.id = existing_streams.artist_id and ts.date = existing_streams.date
+            left join nielsen_artist.streams existing_streams on m.id = existing_streams.artist_id and ts.date = existing_streams.date
         );
 
         create temp table updates as (
@@ -489,8 +483,8 @@ def artistsDbUpdates(db, meta, streams):
                 date,
                 streams
             from streams s
-            where streams != existing_streams
-                and existing_streams is not null
+            where record_exists is true
+                and streams is distinct from existing_streams
         );
 
         create temp table inserts as (
@@ -499,7 +493,7 @@ def artistsDbUpdates(db, meta, streams):
                 date,
                 streams
             from streams
-            where existing_streams is null
+            where record_exists is false
         );
 
         update nielsen_artist.streams s
@@ -875,19 +869,14 @@ def songsDbUpdates(db, meta, streams):
                 ts.streams,
                 existing_streams.streams as existing_streams,
                 ts.ad_supported,
-                ts.premium
+                ts.premium,
+                case
+                    when existing_streams.artist_id is null then false
+                    else true
+                end as record_exists
             from tmp_streams ts
             left join nielsen_song.meta m on ts.unified_song_id = m.unified_song_id
-            left join (
-                select s.*
-                from nielsen_song.streams s
-                where date > now() - interval '20 days'
-                    and song_id in (
-                        select m.id
-                        from tmp_meta tm
-                        left join nielsen_song.meta m on tm.unified_song_id = m.unified_song_id
-                    )
-            ) existing_streams on m.id = existing_streams.song_id and ts.date = existing_streams.date
+            left join nielsen_song.streams existing_streams on m.id = existing_streams.song_id and ts.date = existing_streams.date
         );
 
         create temp table updates as (
@@ -898,8 +887,8 @@ def songsDbUpdates(db, meta, streams):
                 premium,
                 ad_supported
             from streams s
-            where streams != existing_streams
-                and existing_streams is not null
+            where record_exists is true
+                and streams is distinct from existing_streams
         );
 
         create temp table inserts as (
@@ -910,7 +899,7 @@ def songsDbUpdates(db, meta, streams):
                 premium,
                 ad_supported
             from streams
-            where existing_streams is null
+            where record_exists is false
         );
 
         update nielsen_song.streams s
@@ -1238,6 +1227,7 @@ def cacheSpotifySongs(db, pipe):
         select id as song_id, isrc, title, artist
         from nielsen_song.meta
         where id not in (select song_id from nielsen_song.spotify)
+            and is_global is false
     """
     df = db.execute(string)
 
@@ -1519,6 +1509,7 @@ def cacheSpotifyArtists(db, pipe):
                     unified_artist_id
                 from nielsen_artist.meta
                 where id not in (select artist_id from nielsen_artist.spotify)
+                    and is_global is false
             ) m
             left join nielsen_artist.artist_tracks art on m.artist_id = art.artist_id
             left join nielsen_song.spotify sp on sp.song_id = art.song_id
