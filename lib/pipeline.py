@@ -871,7 +871,7 @@ def songsDbUpdates(db, meta, streams):
                 ts.ad_supported,
                 ts.premium,
                 case
-                    when existing_streams.artist_id is null then false
+                    when existing_streams.song_id is null then false
                     else true
                 end as record_exists
             from tmp_streams ts
