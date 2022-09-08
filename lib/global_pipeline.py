@@ -8,6 +8,7 @@ from .Sftp import Sftp
 import shutil
 import pandas as pd
 import os
+from pandas.errors import EmptyDataError
 
 
 # Vars
@@ -403,10 +404,16 @@ def global_pipeline(settings):
                     if os.path.exists(artist_local_fullfile) is False:
                         sftp_conn.get(artist_remote_fullfile, artist_local_fullfile)
 
-                    # Read, clean and update
-                    df = pd.read_csv(artist_local_fullfile, delimiter='\t', encoding='UTF-16')
-                    meta, streams = cleanArtists(df, settings['date'])
-                    artistsDbUpdates(db, meta, streams, settings['date'], country_name.lower())
+                    try:
+
+                        # Read, clean and update
+                        df = pd.read_csv(artist_local_fullfile, delimiter='\t', encoding='UTF-16')
+
+                        meta, streams = cleanArtists(df, settings['date'])
+                        artistsDbUpdates(db, meta, streams, settings['date'], country_name.lower())
+
+                    except EmptyDataError:
+                        print(artist_local_fullfile + ' is empty!')
 
                     # Move file to archive
                     artist_archive_fullfile = os.path.join(server_dir, os.path.basename(artist_local_fullfile))
@@ -425,10 +432,16 @@ def global_pipeline(settings):
                     if os.path.exists(song_local_fullfile) is False:
                         sftp_conn.get(song_remote_fullfile, song_local_fullfile)
 
-                    # Read, clean and update
-                    df = pd.read_csv(song_local_fullfile, delimiter='\t', encoding='UTF-16')
-                    meta, streams = cleanSongs(df, settings['date'])
-                    songsDbUpdates(db, meta, streams, settings['date'], country_name.lower())
+                    try:
+
+                        # Read, clean and update
+                        df = pd.read_csv(song_local_fullfile, delimiter='\t', encoding='UTF-16')
+
+                        meta, streams = cleanSongs(df, settings['date'])
+                        songsDbUpdates(db, meta, streams, settings['date'], country_name.lower())
+
+                    except EmptyDataError:
+                        print(song_local_fullfile + ' is empty!')
 
                     # Move file to archive
                     song_archive_fullfile = os.path.join(server_dir, os.path.basename(song_local_fullfile))
@@ -453,6 +466,6 @@ def global_pipeline(settings):
     if settings['is_testing'] == True:
         db.rollback()
     else:
-        print('NOT TESTING SHOULD COMMIT')
+        db.commit()
 
     print(chalk.green(f'Complete! Total time: {total_time.getElapsed()}'))

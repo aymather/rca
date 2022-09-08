@@ -75,16 +75,32 @@ class Sftp:
         return CONNECTIONS[self.connection_name]
 
     def connect(self):
-        config = self.get_config()
-        conn = pysftp.Connection(
-            config['host'],
-            username=config['username'],
-            password=config['password'],
-            port=config['port'],
-            cnopts=CONNECTION_OPTIONS
-        )
-        print(f'Connected to sftp: {self.connection_name}')
-        return conn
+        
+        try:
+
+            config = self.get_config()
+            conn = pysftp.Connection(
+                config['host'],
+                username=config['username'],
+                password=config['password'],
+                port=config['port'],
+                cnopts=CONNECTION_OPTIONS
+            )
+            print(f'Connected to sftp: {self.connection_name}')
+            return conn
+
+        except:
+
+            config = self.get_config()
+            conn = pysftp.Connection(
+                config['host'],
+                username=config['username'],
+                password=config['password'],
+                port=config['port'],
+                cnopts=CONNECTION_OPTIONS
+            )
+            print(f'Connected to sftp: {self.connection_name}')
+            return conn
 
     def list(self, path='.'):
 

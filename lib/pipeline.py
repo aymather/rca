@@ -474,7 +474,16 @@ def artistsDbUpdates(db, meta, streams):
                 existing_streams.streams as existing_streams
             from tmp_streams ts
             left join nielsen_artist.meta m on ts.unified_artist_id = m.unified_artist_id
-            left join nielsen_artist.streams existing_streams on m.id = existing_streams.artist_id and ts.date = existing_streams.date
+            left join (
+                select s.*
+                from nielsen_artist.streams s
+                where date > now() - interval '20 days'
+                    and artist_id in (
+                        select m.id
+                        from tmp_meta tm
+                        left join nielsen_artist.meta m on tm.unified_artist_id = m.unified_artist_id
+                    )
+            ) existing_streams on m.id = existing_streams.artist_id and ts.date = existing_streams.date
         );
 
         create temp table updates as (
@@ -876,7 +885,16 @@ def songsDbUpdates(db, meta, streams):
                 end as record_exists
             from tmp_streams ts
             left join nielsen_song.meta m on ts.unified_song_id = m.unified_song_id
-            left join nielsen_song.streams existing_streams on m.id = existing_streams.song_id and ts.date = existing_streams.date
+            left join (
+                select s.*
+                from nielsen_song.streams s
+                where date > now() - interval '20 days'
+                    and song_id in (
+                        select m.id
+                        from tmp_meta tm
+                        left join nielsen_song.meta m on tm.unified_song_id = m.unified_song_id
+                    )
+            ) existing_streams on m.id = existing_streams.song_id and ts.date = existing_streams.date
         );
 
         create temp table updates as (
