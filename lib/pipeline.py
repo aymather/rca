@@ -1344,6 +1344,9 @@ def cacheSpotifySongs(db, pipe):
     mask = df['release_date'].str.len() == 7
     df.loc[mask, 'release_date'] = df[mask].apply(lambda x: x.release_date + '-01', axis=1)
 
+    # Sometimes we get these songs that have 0000 for release date, just put em on jan 1st 2000
+    df.loc[df['release_date'] == '0000-01-01', 'release_date'] = '2000-01-01'
+
     # Insert new spotify information
     db.big_insert(df, 'nielsen_song.spotify')
 
