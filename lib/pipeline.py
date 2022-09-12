@@ -1934,6 +1934,8 @@ def cacheSpotifyAlbums(db, pipe):
     mask = df['release_date'].str.len() == 7
     df.loc[mask, 'release_date'] = df[mask].apply(lambda x: x.release_date + '-01', axis=1)
 
+    df.loc[df['release_date'] == '0000-01-01', 'release_date'] = '2000-01-01'
+
     # Insert into db
     db.big_insert(df, 'spotify_albums')
 
