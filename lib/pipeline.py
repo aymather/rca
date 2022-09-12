@@ -554,7 +554,7 @@ def processArtists(db, pipe):
 
 def filterSignedSongs(df, db):
     
-    def filterSignedFilter(row, labels, labels_fuzz, artists_fuzz):
+    def filterSignedFilter(row, labels, labels_fuzz, artists):
     
         # Extract values
         df_label = row['label'].lower()
@@ -573,13 +573,13 @@ def filterSignedSongs(df, db):
         # If the fuzzy ratio is over 90% then you can say we found a match
         if df_label == match or ratio > 0.9:
             return True
+
+        # Last chance, if it's in our list of signed artists
+        if row['artist'] in artists:
+            return True
         
-        # Last fallback is to check the artist against the list of signed artists we have
-        # Check against fuzzyset
-        artist = row['artist']
-        ratio, match, exactMatch = artists_fuzz.check(artist)
-        
-        return True if match.lower() == artist.lower() or ratio >= 0.95 else False
+        # Passed no checks, mark unsigned
+        return False
     
     # Load in nielsen_labels
     nielsen_labels = db.execute('select * from misc.nielsen_labels')
@@ -592,10 +592,7 @@ def filterSignedSongs(df, db):
     artists_df = db.execute('select * from misc.signed_artists where artist is not null')
     artists = artists_df.drop_duplicates(keep='first').artist.values
     
-    # Create fuzzyset
-    artists_fuzz = Fuzz(artists)
-    
-    df['signed'] = df.apply(filterSignedFilter, labels=labels, labels_fuzz=labels_fuzz, artists_fuzz=artists_fuzz, axis=1)
+    df['signed'] = df.apply(filterSignedFilter, labels=labels, labels_fuzz=labels_fuzz, artists=artists, axis=1)
     
     return df
 
@@ -727,7 +724,7 @@ def cleanSongs(df):
 
 def appendToSignedArtistList(df, db):
     
-    # Append to the signed artists csv
+    # Get the signed songs from our dataset
     signed_df = df.loc[df['signed'] == True, ['artist']].reset_index(drop=True)
 
     # Get the existing signed artists
@@ -1023,105 +1020,185 @@ def getSpotifySongs(df):
             - artist
     """
 
+    def get_image(arr):
+        
+        if len(arr) == 0:
+            return None
+        else:
+            arr.sort(key=lambda x: x['height'], reverse=True)
+            return arr[0]['url']
+
+    def extractSongInfo(song):
+                
+        disc_number = song['disc_number']
+        duration_ms = song['duration_ms']
+        explicit = song['explicit']
+        isrc = song['external_ids']['isrc'] if 'external_ids' in song and 'isrc' in song['external_ids'] else ''
+        url = song['external_urls']['spotify'] if 'external_urls' in song and 'spotify' in song['external_urls'] else ''
+        api_url = song['href']
+
+        spotify_track_id = song['id']
+        spotify_album_id = song['album']['id']
+        spotify_artist_id = song['artists'][0]['id']
+        
+        href = song['href']
+        is_local = song['is_local']
+        name = song['name']
+        popularity = song['popularity']
+        preview_url = song['preview_url']
+        track_number = song['track_number']
+        uri = song['uri']
+        spotify_image = get_image(song['album']['images'])
+        release_date = song['album']['release_date']
+        total_tracks = song['album']['total_tracks']
+        album_type = song['album']['type']
+        
+        return {
+            'disc_number': disc_number,
+            'duration_ms': duration_ms,
+            'explicit': explicit,
+            'isrc': isrc,
+            'url': url,
+            'api_url': api_url,
+            'spotify_track_id': spotify_track_id,
+            'spotify_artist_id': spotify_artist_id,
+            'spotify_album_id': spotify_album_id,
+            'is_local': is_local,
+            'name': name,
+            'popularity': popularity,
+            'preview_url': preview_url,
+            'track_number': track_number,
+            'uri': uri,
+            'album_type': album_type,
+            'spotify_image': spotify_image,
+            'release_date': release_date,
+            'total_tracks': total_tracks
+        }
+
+    def getSpotifyTracksManually(row, track_columns):
+
+        # If we already have the data, skip
+        if pd.notnull(row['spotify_track_id']):
+            return pd.Series({ key: row[key] for key in track_columns })
+        
+        # We're going to use our spotify client, refresh every 10% of the time
+        if random.random() < 0.1:
+            spotify.refresh()
+
+        isrc = row['isrc']
+        if pd.notnull(isrc):
+
+            res = spotify.sp.search(q=f'isrc:{isrc}', type='track')
+        
+            if len(res['tracks']['items']) > 0:
+                return pd.Series(extractSongInfo(res['tracks']['items'][0]))
+
+        # If we don't find anything then just resort to searching by title / artist
+        res = spotify.searchByTitleAndArtist(row['title'], row['artist'])
+        if res is not None:
+            return pd.Series(extractSongInfo(res))
+        
+        # If everything fails, just return all None values for the columns we expect
+        return pd.Series({ key: None for key in track_columns })
+
     def getSpotifyTracks(df, spotify):
 
-        def get_image(arr):
-        
-            if len(arr) == 0:
-                return None
-            else:
-                arr.sort(key=lambda x: x['height'], reverse=True)
-                return arr[0]['url']
+        """
+            Gets track information about a list of spotify tracks
 
-        def extractSongInfo(song):
-            
-            disc_number = song['disc_number']
-            duration_ms = song['duration_ms']
-            explicit = song['explicit']
-            isrc = song['external_ids']['isrc'] if 'external_ids' in song and 'isrc' in song['external_ids'] else ''
-            url = song['external_urls']['spotify'] if 'external_urls' in song and 'spotify' in song['external_urls'] else ''
-            api_url = song['href']
+            Input: Dataframe with columns { title, artist, isrc }
 
-            spotify_track_id = song['id']
-            spotify_album_id = song['album']['id']
-            spotify_artist_id = song['artists'][0]['id']
-            
-            href = song['href']
-            is_local = song['is_local']
-            name = song['name']
-            popularity = song['popularity']
-            preview_url = song['preview_url']
-            track_number = song['track_number']
-            uri = song['uri']
-            spotify_image = get_image(song['album']['images'])
-            release_date = song['album']['release_date']
-            total_tracks = song['album']['total_tracks']
-            album_type = song['album']['type']
+            Steps:
+                1. Use isrcs to attempt to match to reporting_db existing cache
+                2. Use isrcs to search manually and fill in the gaps
+                3. Use title / artist to search manually and fill in the gaps
+        """
 
-            return pd.Series((disc_number, duration_ms, explicit, isrc, url,
-                            api_url, spotify_track_id, spotify_artist_id, spotify_album_id, is_local,
-                            name, popularity, preview_url, track_number, uri, album_type, spotify_image,
-                            release_date, total_tracks))
-
-        def getTrackInfoByTitleAndArtist(row):
-            
-            # If we don't find anything then just resort to searching by title / artist
-            title = row['title']
-            artist = row['artist']
-            res = spotify.searchByTitleAndArtist(title, artist)
-            if res is not None:
-                return extractSongInfo(res)
-            else:
-                return pd.Series(tuple([None for i in range(19)]))
-
-        def getTrackInfo(row, spotify):
-
-            if random.random() < 0.1:
-                spotify.refresh()
-
-            isrc = row['isrc']
-            if pd.notnull(isrc):
-
-                res = spotify.sp.search(q=f'isrc:{isrc}', type='track')
-            
-                if len(res['tracks']['items']) > 0:
-                    return extractSongInfo(res['tracks']['items'][0])
-                else:
-
-                    # If we don't find anything then just resort to searching by title / artist
-                    return getTrackInfoByTitleAndArtist(row)
-
-            else:
-
-                # If we don't have an isrc, then just search by title / artist
-                return getTrackInfoByTitleAndArtist(row)
-
+        # These are the columns that will be added from this step
         track_columns = [
+            'album_type',
+            'api_url',
             'disc_number',
             'duration_ms',
             'explicit',
-            'isrc',
-            'url',
-            'api_url',
-            'spotify_track_id',
-            'spotify_artist_id',
-            'spotify_album_id',
             'is_local',
+            'isrc',
             'name',
             'popularity',
             'preview_url',
+            'release_date',
+            'spotify_album_id',
+            'spotify_artist_id',
+            'spotify_image',
+            'spotify_track_id',
+            'total_tracks',
             'track_number',
             'uri',
-            'album_type',
-            'spotify_image',
-            'release_date',
-            'total_tracks'
+            'url'
         ]
 
+        # If the dataframe is empty, just add columns and return
         if df.empty:
             df[track_columns] = None
+            return df
+
+        # Extract isrcs for bulk search
+        isrcs = tuple(df.loc[~df['isrc'].isnull(), 'isrc'].unique())
+        isrcs = []
+
+        # If we found any, do a bulk search
+        if len(isrcs) > 0:
+
+            reporting_db = Db('reporting_db')
+            reporting_db.connect()
+
+            # Attempt to match the spotify track ids to the isrcs we already have
+            string = """
+                select
+                    isrc,
+                    spotify_track_id,
+                    popularity_score as popularity
+                from chartmetric_raw.spotify
+                where isrc in %(isrcs)s
+            """
+            params = { 'isrcs': isrcs }
+            spotify = reporting_db.execute(string, params)
+
+            # Disconnect from reporting db
+            reporting_db.disconnect()
+
+            # Remove duplicate isrcs and keep the ones with the highest popularity score
+            spotify = spotify.sort_values(by='popularity', ascending=False).drop_duplicates(subset=['isrc']).drop(columns='popularity').reset_index(drop=True)
+
+            # Merge the spotify track ids onto our main dataset
+            df = pd.merge(df, spotify, on='isrc', how='left')
+
+            # Loop through the spotify track ids we just got in bulk
+            data = []
+            chunks = chunker(df.loc[~df['spotify_track_id'].isnull(), 'spotify_track_id'].unique(), 50)
+            for spotify_track_ids in chunks:
+                
+                # Get spotify info from api
+                tracks = spotify.sp.tracks(spotify_track_ids)
+
+                # Extract information we're interested in
+                tracks = [extractSongInfo(i) for i in tracks['tracks']]
+
+                # Append to list
+                data = [ *data, *tracks ]
+
+            # Convert to dataframe for easy merging
+            data = pd.DataFrame(data)
+
+            # Add info to our main dataframe
+            df = pd.merge(df, data, on=['isrc', 'spotify_track_id'], how='left')
+
         else:
-            df[track_columns] = df.apply(getTrackInfo, spotify=spotify, axis=1)
+
+            df['spotify_track_id'] = None
+
+        # Fill in the gaps by searching for missing spotify_track_ids by isrc, and then title & artist
+        df[track_columns] = df.apply(getSpotifyTracksManually, track_columns=track_columns, axis=1)
 
         return df
 
