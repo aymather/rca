@@ -1182,7 +1182,7 @@ def getSpotifySongs(df):
                 tracks = spotify.sp.tracks(spotify_track_ids)
 
                 # Extract information we're interested in
-                tracks = [extractSongInfo(i) for i in tracks['tracks']]
+                tracks = [extractSongInfo(i) for i in tracks['tracks'] if i is not None]
 
                 # Append to list
                 data = [ *data, *tracks ]
