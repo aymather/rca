@@ -124,7 +124,7 @@ class Fuzz:
         string = ' '.join(str(string).replace('/', ' ').replace('|', ' ').replace('+', ' ').replace('_', ' ').replace(' - ', ' ').split())
 
         # Remove all special characters
-        string = ''.join(s for s in string if s.isalnum() or s == ' ' or s == '-')
+        # string = ''.join(s for s in string if s.isalnum() or s == ' ' or s == '-')
 
         # Lowercase string
         string = string.lower()
