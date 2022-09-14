@@ -116,15 +116,9 @@ class Fuzz:
 
     # Preprocess a string for cosine similarity
     def cos_preprocess(self, string):
-        
-        # Some special characters should be treated as dividers between
-        # words, so we will replace them with spaces.
-        # In order to remove a hyphen, it must have spaces around it, otherwise,
-        # it is probably a name
-        string = ' '.join(str(string).replace('/', ' ').replace('|', ' ').replace('+', ' ').replace('_', ' ').replace(' - ', ' ').split())
 
         # Remove all special characters
-        # string = ''.join(s for s in string if s.isalnum() or s == ' ' or s == '-')
+        string = ''.join(s for s in string if s.isalnum())
 
         # Lowercase string
         string = string.lower()
