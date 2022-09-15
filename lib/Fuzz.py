@@ -117,6 +117,9 @@ class Fuzz:
     # Preprocess a string for cosine similarity
     def cos_preprocess(self, string):
 
+        if string is None:
+            string = ''
+
         # Remove all special characters
         string = ''.join(s for s in string if s.isalnum())
 
