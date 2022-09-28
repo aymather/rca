@@ -5,6 +5,7 @@ from .Spotify import Spotify
 from .Fuzz import Fuzz
 from .Time import Time
 from .Db import Db
+from requests.exceptions import ReadTimeout
 from datetime import datetime, timedelta
 from uuid import uuid4
 import pandas as pd
@@ -1088,7 +1089,10 @@ def getSpotifySongs(df):
         isrc = row['isrc']
         if pd.notnull(isrc):
 
-            res = spotify.sp.search(q=f'isrc:{isrc}', type='track')
+            try:
+                res = spotify.sp.search(q=f'isrc:{isrc}', type='track')
+            except ReadTimeout:
+                res = spotify.sp.search(q=f'isrc:{isrc}', type='track')
         
             if len(res['tracks']['items']) > 0:
                 return pd.Series(extractSongInfo(res['tracks']['items'][0]))
@@ -1179,7 +1183,10 @@ def getSpotifySongs(df):
             for spotify_track_ids in chunks:
                 
                 # Get spotify info from api
-                tracks = spotify.sp.tracks(spotify_track_ids)
+                try:
+                    tracks = spotify.sp.tracks(spotify_track_ids)
+                except ReadTimeout:
+                    tracks = spotify.sp.tracks(spotify_track_ids)
 
                 # Extract information we're interested in
                 tracks = [extractSongInfo(i) for i in tracks['tracks'] if i is not None]
@@ -1235,7 +1242,10 @@ def getSpotifySongs(df):
             if random.random() < 0.1:
                 spotify.refresh()
 
-            res = spotify.sp.albums(chunk)
+            try:
+                res = spotify.sp.albums(chunk)
+            except ReadTimeout:
+                res = spotify.sp.albums(chunk)
 
             res = [album2Data(i) for i in res['albums']]
 
@@ -1271,7 +1281,10 @@ def getSpotifySongs(df):
             if random.random() < 0.1:
                 spotify.refresh()
 
-            res = spotify.sp.audio_features(chunk)
+            try:
+                res = spotify.sp.audio_features(chunk)
+            except ReadTimeout:
+                res = spotify.sp.audio_features(chunk)
 
             data = [ *data, *res ]
             
@@ -1407,7 +1420,12 @@ def bulkGetSpotifyArtistInfo(df, spotify):
         if random.random() < 0.1:
             spotify.refresh()
 
-        res = transformArtistReponse(spotify.sp.artists(chunk))
+        try:
+            res = spotify.sp.artists(chunk)
+        except ReadTimeout:
+            res = spotify.sp.artists(chunk)
+
+        res = transformArtistReponse(res)
 
         data = [ *data, *res ]
 
@@ -1503,7 +1521,10 @@ def getSpotifyPopularTrackId(df, spotify):
             return pd.Series((None, None))
 
         # Wrap and retry cuz spotipy is dumb
-        popular_tracks = spotify.sp.artist_top_tracks(row['spotify_artist_id'])
+        try:
+            popular_tracks = spotify.sp.artist_top_tracks(row['spotify_artist_id'])
+        except ReadTimeout:
+            popular_tracks = spotify.sp.artist_top_tracks(row['spotify_artist_id'])
 
         # If we didn't get anything then we can just exit
         if len(popular_tracks['tracks']) == 0:
@@ -1561,7 +1582,10 @@ def getSpotifyAlbumInfo(df, spotify):
         if random.random() < 0.1:
             spotify.refresh()
 
-        res = spotify.sp.albums(chunk)
+        try:
+            res = spotify.sp.albums(chunk)
+        except ReadTimeout:
+            res = spotify.sp.albums(chunk)
 
         res = [album2Data(i) for i in res['albums']]
 
@@ -1918,7 +1942,10 @@ def cacheSpotifyAlbums(db, pipe):
         if random.random() < 0.1:
             spotify.refresh()
 
-        res = spotify.sp.albums(chunk)
+        try:
+            res = spotify.sp.albums(chunk)
+        except ReadTimeout:
+            res = spotify.sp.albums(chunk)
 
         res = [album2Data(i) for i in res['albums']]
 
