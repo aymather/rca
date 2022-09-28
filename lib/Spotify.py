@@ -52,9 +52,9 @@ class Spotify:
         sp = spotipy.Spotify(
             auth=spotify_token,
             requests_timeout=10,
-            retries=3,
+            retries=10,
             status_forcelist=status_forcelist,
-            status_retries=3
+            status_retries=10
         )
         
         return sp
