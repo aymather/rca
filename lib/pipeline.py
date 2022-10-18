@@ -1093,8 +1093,10 @@ def getSpotifySongs(df):
                 res = spotify.sp.search(q=f'isrc:{isrc}', type='track')
             except ReadTimeout:
                 res = spotify.sp.search(q=f'isrc:{isrc}', type='track')
+
+            items = [i for i in res['tracks']['items'] if i is not None]
         
-            if len(res['tracks']['items']) > 0:
+            if len(items) > 0:
                 return pd.Series(extractSongInfo(res['tracks']['items'][0]))
 
         # If we don't find anything then just resort to searching by title / artist
