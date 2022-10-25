@@ -1,5 +1,5 @@
 from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, REPORTS_FOLDER
-from simple_chalk import chalk
+from .PipelineBase import PipelineBase
 from datetime import datetime
 from zipfile import ZipFile
 from .Time import Time
@@ -19,9 +19,10 @@ DEFAULT_RUNTIME_SETTINGS = {
     'is_testing': True
 }
 
-class PipelineManager:
+class PipelineManager(PipelineBase):
 
     def __init__(self):
+        PipelineBase.__init__(self)
 
         # Make folders if they don't already exist
         if os.path.isdir(LOCAL_ARCHIVE_FOLDER) == False:
@@ -37,18 +38,6 @@ class PipelineManager:
         self.files = None
         self.fullfiles = None
         self.folders = None
-        self.time = None
-
-        # Chalk settings
-        self.stageColor = chalk.red
-        self.fnCompleteColor = chalk.cyan
-        self.successColor = chalk.green
-
-    def printStage(self, msg):
-        print(self.stageColor(msg))
-
-    def printFnComplete(self, msg):
-        print(self.fnCompleteColor(msg))
 
     def init(self, settings=DEFAULT_RUNTIME_SETTINGS):
 
@@ -58,9 +47,6 @@ class PipelineManager:
             Collects all local filenames and fullfiles based on date passed so we can easily
             use these anywhere in the pipeline.
         """
-
-        # Start timer
-        self.time = Time()
 
         # Set our runtime settings
         self.settings = settings

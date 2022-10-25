@@ -348,7 +348,7 @@ def global_pipeline(settings):
         os.mkdir(GLOBAL_ARCHIVE_FOLDER)
 
     # Init today's directory
-    daily_dir = GLOBAL_ARCHIVE_DAILY_FOLDER_TEMPLATE.format(datetime.strftime(settings['date'], '%Y-%m-%d'))
+    daily_dir = GLOBAL_ARCHIVE_DAILY_FOLDER_TEMPLATE.format(datetime.strftime(settings['global_date'], '%Y-%m-%d'))
     if os.path.exists(daily_dir) == False:
         os.mkdir(daily_dir)
 
@@ -384,7 +384,7 @@ def global_pipeline(settings):
                 country_time = Time()
 
                 # Create the file names that pertain to the current country
-                formatted_date = datetime.strftime(settings['date'], '%Y%m%d')
+                formatted_date = datetime.strftime(settings['global_date'], '%Y%m%d')
                 artist_filename = ARTIST_NAME_TEMPLATE.format(country_name, formatted_date)
                 song_filename = SONG_NAME_TEMPLATE.format(country_name, formatted_date)
 
@@ -409,8 +409,8 @@ def global_pipeline(settings):
                         # Read, clean and update
                         df = pd.read_csv(artist_local_fullfile, delimiter='\t', encoding='UTF-16')
 
-                        meta, streams = cleanArtists(df, settings['date'])
-                        artistsDbUpdates(db, meta, streams, settings['date'], country_name.lower())
+                        meta, streams = cleanArtists(df, settings['global_date'])
+                        artistsDbUpdates(db, meta, streams, settings['global_date'], country_name.lower())
 
                     except EmptyDataError:
                         print(artist_local_fullfile + ' is empty!')
@@ -437,8 +437,8 @@ def global_pipeline(settings):
                         # Read, clean and update
                         df = pd.read_csv(song_local_fullfile, delimiter='\t', encoding='UTF-16')
 
-                        meta, streams = cleanSongs(df, settings['date'])
-                        songsDbUpdates(db, meta, streams, settings['date'], country_name.lower())
+                        meta, streams = cleanSongs(df, settings['global_date'])
+                        songsDbUpdates(db, meta, streams, settings['global_date'], country_name.lower())
 
                     except EmptyDataError:
                         print(song_local_fullfile + ' is empty!')
@@ -457,7 +457,7 @@ def global_pipeline(settings):
 
     # Make archive
     print('Making archive...')
-    zip_dir = GLOBAL_ARCHIVE_DAILY_ZIP_FOLDER_TEMPLATE.format(datetime.strftime(settings['date'], '%Y-%m-%d'))
+    zip_dir = GLOBAL_ARCHIVE_DAILY_ZIP_FOLDER_TEMPLATE.format(datetime.strftime(settings['global_date'], '%Y-%m-%d'))
     make_archive(daily_dir, zip_dir)
 
     # Remove the non-zip folder

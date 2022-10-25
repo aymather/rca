@@ -7,3 +7,5 @@ from .lib.Sftp import Sftp
 from .lib.PipelineManager import PipelineManager
 from .lib.pipeline import *
 from .lib.global_pipeline import global_pipeline
+from .lib.env import *
+from .lib.mapping_table import mapping_table

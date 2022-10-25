@@ -13,7 +13,9 @@ from .env import (
     RCA_NIELSEN_LATIN_AMERICA_DAILY_SFTP_USERNAME, 
     RCA_NIELSEN_LATIN_AMERICA_DAILY_SFTP_PASSWORD, 
     RCA_NIELSEN_EMERGING_DAILY_SFTP_USERNAME, 
-    RCA_NIELSEN_EMERGING_DAILY_SFTP_PASSWORD
+    RCA_NIELSEN_EMERGING_DAILY_SFTP_PASSWORD,
+    RCA_NIELSEN_MAPPING_TABLE_USERNAME,
+    RCA_NIELSEN_MAPPING_TABLE_PASSWORD
 )
 
 
@@ -23,6 +25,12 @@ CONNECTIONS = {
         'port': 22,
         'username': RCA_NIELSEN_US_DAILY_SFTP_USERNAME,
         'password': RCA_NIELSEN_US_DAILY_SFTP_PASSWORD
+    },
+    'mapping_table': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_MAPPING_TABLE_USERNAME,
+        'password': RCA_NIELSEN_MAPPING_TABLE_PASSWORD
     },
     'eu_daily': {
         'host': 'sftp.mrc-data.com',
@@ -111,8 +119,14 @@ class Sftp:
 
     def get(self, remote_fullfile, local_fullfile):
 
+        """
+            Get file from the server
+            
+            self.get(remote_fullfile, local_fullfile)
+        """
+
         with self.connect() as sftp:
-            print(f'Copying {remote_fullfile} to {local_fullfile}')
+            print(f'Copying... Remove: {remote_fullfile} to Local: {local_fullfile}')
             sftp.get(remote_fullfile, local_fullfile)
             print('Copied successfully...')
 
