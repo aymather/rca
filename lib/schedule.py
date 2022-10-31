@@ -5,7 +5,7 @@ from .monday_weekly import monday_weekly
 from datetime import datetime, timedelta
 import sys
 
-def schedule():
+def schedule(settings):
 
     """
         This function coordinates different pipelines that have different
@@ -14,13 +14,13 @@ def schedule():
         every day.
     """
 
-    print(day_of_week)
-    if day_of_week == 'Sunday':
+    print(settings['day_of_week'])
+    if settings['day_of_week'] == 'Sunday':
 
         print('Running: global pipeline')
         global_pipeline(settings)
 
-    elif day_of_week == 'Monday':
+    elif settings['day_of_week'] == 'Monday':
 
         print('Running: Main pipeline, global pipeline, mapping table, monday weekly')
         pipeline(settings)
@@ -28,30 +28,30 @@ def schedule():
         mapping_table(settings)
         monday_weekly(settings)
 
-    elif day_of_week == 'Tuesday':
+    elif settings['day_of_week'] == 'Tuesday':
 
         print('Running: Main pipeline')
         pipeline(settings)
 
-    elif day_of_week == 'Wednesday':
+    elif settings['day_of_week'] == 'Wednesday':
 
         print('Running: Main pipeline, global pipeline')
         pipeline(settings)
         global_pipeline(settings)
 
-    elif day_of_week == 'Thursday':
+    elif settings['day_of_week'] == 'Thursday':
 
         print('Running: Main pipeline, global pipeline')
         pipeline(settings)
         global_pipeline(settings)
 
-    elif day_of_week == 'Friday':
+    elif settings['day_of_week'] == 'Friday':
 
         print('Running: Main pipeline, global pipeline')
         pipeline(settings)
         global_pipeline(settings)
 
-    elif day_of_week == 'Saturday':
+    elif settings['day_of_week'] == 'Saturday':
 
         print('Running: Main pipeline, global pipeline')
         pipeline(settings)

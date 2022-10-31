@@ -26,6 +26,9 @@ def get_settings():
         # If we do specify, then parse the date that we passed
         run_date = datetime.strptime(args.date, '%Y-%m-%d')
 
+    formatted_run_date = run_date.strftime('%Y-%m-%d')
+    print(f'Run date: {formatted_run_date}')
+
     # Get the day of the week from the date
     day_of_week = run_date.strftime('%A')
 
@@ -53,5 +56,8 @@ def get_settings():
     settings = {
         'date': run_date,
         'global_date': global_date,
-        'is_testing': is_testing
+        'is_testing': is_testing,
+        'day_of_week': day_of_week
     }
+
+    return settings
