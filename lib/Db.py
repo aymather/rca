@@ -1,15 +1,23 @@
 from .env import TMP_FOLDER, RCA_DB, REPORTING_DB
 from datetime import datetime
 from psycopg2 import sql
+from psycopg2.extensions import register_adapter, AsIs
 import psycopg2.extras
 import psycopg2
 import pandas as pd
+import numpy as np
 import os
 
 
 # Numpy type int64 adapter
 def addapt_numpy_int64(numpy_int64):
     return AsIs(numpy_int64)
+
+def addapt_numpy_float64(numpy_float64):
+    return AsIs(numpy_float64)
+
+register_adapter(np.float64, addapt_numpy_float64)
+register_adapter(np.int64, addapt_numpy_int64)
 
 db_connections = {
     'rca_db': RCA_DB,

@@ -1,9 +1,8 @@
 from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, REPORTS_FOLDER
 from .PipelineBase import PipelineBase
+from .Sftp import Sftp
 from datetime import datetime
 from zipfile import ZipFile
-from .Time import Time
-import glob
 import os
 
 NIELSEN_US_DAILY_ARCHIVE_FOLDER = '/' # location on nielsen's remote sftp server where the US daily files are located
@@ -89,33 +88,34 @@ class PipelineManager(PipelineBase):
             'exports': os.path.join(REPORTS_FOLDER, EXPORTS_TEMPLATE.format(formatted_date))
         }
 
-    def start(self):
+        # Only download if some file is missing
+        if os.path.exists(self.fullfiles['artist']) == False or os.path.exists(self.fullfiles['song']) == False:
 
-        """
-            Pipeline startup:
-                1. Unzip file
-                2. Delete unnecessary files
-        """
+            # Init SFTP client
+            sftp = Sftp('nielsen_daily')
 
-        # Unzip
-        with ZipFile(self.fullfiles['zip'], 'r') as file_ref:
-            file_ref.extractall(LOCAL_DOWNLOAD_FOLDER)
+            # Download remote zip file to our local download folder
+            sftp.get(self.fullfiles['zip_remote_archive'], self.fullfiles['zip'])
 
-        # We can delete the old song file
-        os.remove(self.fullfiles['old_song'])
+            # Unzip
+            with ZipFile(self.fullfiles['zip'], 'r') as file_ref:
+                file_ref.extractall(LOCAL_DOWNLOAD_FOLDER)
 
-        # Move the zip files into the archive (don't do this unless we have the required files)
-        os.rename(self.fullfiles['zip'], self.fullfiles['zip_local_archive'])
+            # We can delete the old song file
+            os.remove(self.fullfiles['old_song'])
 
-        # Remove this annoying folder that sometimes comes from our zip files
-        if os.path.isdir(os.path.join(LOCAL_DOWNLOAD_FOLDER, MAC_FOLDER)):
-            os.rmdir(MAC_FOLDER)
+            # Move the zip files into the archive (don't do this unless we have the required files)
+            os.rename(self.fullfiles['zip'], self.fullfiles['zip_local_archive'])
 
-        # Create an exports directory
-        if os.path.isdir(self.folders['exports']) == False:
-            os.mkdir(self.folders['exports'])
+            # Remove this annoying folder that sometimes comes from our zip files
+            if os.path.isdir(os.path.join(LOCAL_DOWNLOAD_FOLDER, MAC_FOLDER)):
+                os.rmdir(MAC_FOLDER)
 
-        print(f"Initialized file: {self.fullfiles['zip']}")
+            # Create an exports directory
+            if os.path.isdir(self.folders['exports']) == False:
+                os.mkdir(self.folders['exports'])
+
+            print(f"Initialized file: {self.fullfiles['zip']}")
 
     def finish(self, db):
 
@@ -127,11 +127,11 @@ class PipelineManager(PipelineBase):
         # Commit our db changes if we aren't in testing mode
         if self.settings['is_testing'] == False:
             db.commit()
-            db.disconnect()
         else:
             # If we're just testing, rollback changes
             db.rollback()
-            db.disconnect()
+
+        db.disconnect()
 
         # Delete artist file
         if os.path.exists(self.fullfiles['artist']):

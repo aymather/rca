@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 import pandas as pd
 import random
-import math
 import os
 
 
@@ -371,12 +370,9 @@ def filterBySignedArtistsList(df, db):
     
     return df
 
-def prepareArtistData(fullfile, db):
+def prepareArtistData(df, db):
     
     time = Time()
-
-    # Read in the data
-    df = pd.read_csv(fullfile, encoding='UTF-16')
     
     # Clean & standardize data
     meta, streams = cleanArtists(df)
@@ -545,8 +541,11 @@ def processArtists(db, pipe):
 
     time = Time()
 
+    # Read in the data
+    df = pd.read_csv(pipe.fullfiles['artist'], encoding='UTF-16')
+
     # Clean dataframe
-    meta, streams = prepareArtistData(pipe.fullfiles['artist'], db)
+    meta, streams = prepareArtistData(df, db)
 
     # Database updates
     artistsDbUpdates(db, meta, streams)
@@ -959,6 +958,7 @@ def processSongs(db, pipe):
 
     time = Time()
 
+    # Read in the data
     df = pd.read_csv(pipe.fullfiles['song'], encoding='UTF-16')
 
     # Clean data
@@ -2575,18 +2575,6 @@ def pipeline(settings):
 
     pipe.printStage('Stage: 0 - Initialize')
 
-    # Only download if some file is missing
-    if os.path.exists(pipe.fullfiles['artist']) == False or os.path.exists(pipe.fullfiles['song']) == False:
-
-        # Init SFTP client
-        sftp = Sftp('nielsen_daily')
-
-        # Download remote zip file to our local download folder
-        sftp.get(pipe.fullfiles['zip_remote_archive'], pipe.fullfiles['zip'])
-
-        # Start pipeline now that we have the remote file
-        pipe.start()
-
     # Validate that everything seems in order
     validateSession(pipe)
 
@@ -2693,3 +2681,102 @@ def pipeline(settings):
 
     # Clean up and log the total time for the pipeline and disconnect from database
     pipe.finish(db)
+
+
+"""
+    Test pipeline
+
+    We're going to write this for testing purposes. We aren't going to include every element of our actual pipeline
+    because that will take too long for testing. So this is going to be a very stripped down version that only
+    uses the essential elements of our pipeline to make sure that we can do things like connect to the database
+    and download sftp files and such.
+
+    There will be 2 versions of this:
+        1. Completely stripped - should execute in under a minute or two.
+        2. Full first stage of the pipeline - should execute in around a half hour.
+"""
+def test_processArtists(db, pipe, test_type):
+
+    """
+        Official method for processing nielsen's Artist file.
+    """
+
+    time = Time()
+
+    # Read in the data
+    df = pd.read_csv(pipe.fullfiles['artist'], encoding='UTF-16')
+
+    # If we're running the stripped version, then just grab the top 100
+    if test_type == 'stripped':
+        df = df.iloc[:100].reset_index(drop=True)
+
+    # Clean dataframe
+    meta, streams = prepareArtistData(df, db)
+
+    # Database updates
+    artistsDbUpdates(db, meta, streams)
+
+    pipe.printFnComplete(time.getElapsed('Artists processed'))
+
+def test_processSongs(db, pipe, test_type):
+
+    """
+        Official method for processing nielsen's Song file.
+    """
+
+    time = Time()
+
+    # Read in the data
+    df = pd.read_csv(pipe.fullfiles['song'], encoding='UTF-16')
+
+    # If we're running the stripped version, then just grab the top 100
+    if test_type == 'stripped':
+        df = df.iloc[:100].reset_index(drop=True)
+
+    # Clean data
+    meta, streams = prepareSongData(df, db)
+
+    # Database updates
+    songsDbUpdates(db, meta, streams)
+
+    pipe.printFnComplete(time.getElapsed('Songs processed'))
+
+def test_pipeline(settings, test_type):
+
+    if test_type not in ['stripped', 'full']:
+        raise Exception('Error: Invalid test_type, must be one of "stripped", "full"')
+
+    # Make sure that we're always in testing mode regardless of what is passed
+    settings['is_testing'] = True
+    
+    """
+        Init Pipeline (the beginning method basically just creates all the filenames)
+
+        This section will check to see if the files required for this process have already
+        been downloaded or not, if they have, then this will just generate all the required
+        filenames for the job. If the files are NOT present, then this will download the files
+        from the sftp server.
+    """
+    pipe = PipelineManager()
+    pipe.init(settings)
+
+    """
+        Validate that everything seems in order.
+
+        This checks that the files downloaded from the server are formatted correctly,
+        extracted to the correct location, and that we're capable of establishing a connection
+        to our postgres db, the reporting db, and the spotify api.
+    """
+    validateSession(pipe)
+
+    # Connect to our database and start transactions
+    db = Db('rca_db')
+    db.connect()
+
+    """
+        These are the main test functions that transform our data and upload it to our database.
+        None of these changes will be committed to the database.
+    """
+    pipe.printStage('Stage: 1 - processArtists, processSongs')
+    test_processArtists(db, pipe, test_type)
+    test_processSongs(db, pipe, test_type)

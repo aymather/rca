@@ -1,7 +1,8 @@
 from rca import Db
 from .PipelineBase import PipelineBase
+import pandas as pd
 
-def cacheChartmetricIds(settings, db):
+def cacheChartmetricIds(db):
 
     # Start by getting the spotify artist ids from our db
     string = """
@@ -103,11 +104,12 @@ def cacheChartmetricIds(settings, db):
         where artist_id in %(artist_ids)s
     """
     params = { 'artist_ids': tuple(data.artist_id.values) }
+    db.execute(string, params)
 
     # Insert updated records
     db.big_insert(data, 'nielsen_artist.cm_map')
 
-def cacheArtistDiscoveryStats(settings, db):
+def cacheArtistDiscoveryStats(db):
 
     string = """
         -- Cache daily artist streams for discovery
@@ -484,7 +486,7 @@ def cacheArtistDiscoveryStats(settings, db):
     """
     db.execute(string)
 
-def cacheStreamingStats(settings, db):
+def cacheStreamingStats(db):
 
     string = """
         -- Cache daily artist streams for discovery
@@ -861,7 +863,7 @@ def cacheStreamingStats(settings, db):
     """
     db.execute(string)
 
-def cacheProjectReports(settings, db):
+def cacheProjectReports(db):
 
     string = """
         -- Projects
@@ -1001,16 +1003,16 @@ def monday_weekly(settings):
     db = Db('rca_db')
     db.connect()
 
-    cacheChartmetricIds(settings, db)
+    cacheChartmetricIds(db)
     pipe.printFnComplete('Cached Chartmetric Ids')
 
-    cacheArtistDiscoveryStats(settings, db)
+    cacheArtistDiscoveryStats(db)
     pipe.printFnComplete('Cached Artist Discovery Stats')
 
-    cacheStreamingStats(settings, db)
+    cacheStreamingStats(db)
     pipe.printFnComplete('Cached Streaming Stats')
 
-    cacheProjectReports(settings, db)
+    cacheProjectReports(db)
     pipe.printFnComplete('Cached Project Reports')
 
     # Only commit our changes if we aren't testing
