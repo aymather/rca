@@ -126,7 +126,7 @@ class Sftp:
         """
 
         with self.connect() as sftp:
-            print(f'Copying... Remove: {remote_fullfile} to Local: {local_fullfile}')
+            print(f'Copying... Remote: {remote_fullfile} to Local: {local_fullfile}')
             sftp.get(remote_fullfile, local_fullfile)
             print('Copied successfully...')
 
