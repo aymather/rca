@@ -2,8 +2,6 @@ from .global_pipeline import global_pipeline
 from .pipeline import pipeline
 from .mapping_table import mapping_table
 from .monday_weekly import monday_weekly
-from datetime import datetime, timedelta
-import sys
 
 def schedule(settings):
 

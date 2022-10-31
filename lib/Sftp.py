@@ -1,6 +1,4 @@
 import pysftp
-import paramiko
-import subprocess
 from .env import (
     RCA_NIELSEN_US_DAILY_SFTP_USERNAME, 
     RCA_NIELSEN_US_DAILY_SFTP_PASSWORD, 
@@ -71,6 +69,8 @@ class Sftp:
 
     def __init__(self, connection_name):
         self.set_connection(connection_name)
+        self.connection_name = connection_name
+        self.attempts = 5
 
     def set_connection(self, connection_name):
 
@@ -83,32 +83,28 @@ class Sftp:
         return CONNECTIONS[self.connection_name]
 
     def connect(self):
-        
-        try:
 
-            config = self.get_config()
-            conn = pysftp.Connection(
-                config['host'],
-                username=config['username'],
-                password=config['password'],
-                port=config['port'],
-                cnopts=CONNECTION_OPTIONS
-            )
-            print(f'Connected to sftp: {self.connection_name}')
-            return conn
+        tries = 0
+        while tries < self.attempts:
 
-        except:
+            try:
 
-            config = self.get_config()
-            conn = pysftp.Connection(
-                config['host'],
-                username=config['username'],
-                password=config['password'],
-                port=config['port'],
-                cnopts=CONNECTION_OPTIONS
-            )
-            print(f'Connected to sftp: {self.connection_name}')
-            return conn
+                config = self.get_config()
+                conn = pysftp.Connection(
+                    config['host'],
+                    username=config['username'],
+                    password=config['password'],
+                    port=config['port'],
+                    cnopts=CONNECTION_OPTIONS
+                )
+                print(f'Connected to sftp: {self.connection_name}')
+                return conn
+
+            except:
+                tries += 1
+                print(f'Error while connecting to sftp server: {self.connection_name}')
+
+        raise Exception(f'Error: Too many retries while connecting to {self.connection_name}')
 
     def list(self, path='.'):
 
