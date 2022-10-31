@@ -9,3 +9,4 @@ from .lib.pipeline import *
 from .lib.global_pipeline import global_pipeline
 from .lib.env import *
 from .lib.mapping_table import mapping_table
+from .lib.monday_weekly import monday_weekly
