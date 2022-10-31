@@ -1,13 +1,7 @@
 from rca import Db
 from .PipelineBase import PipelineBase
 
-def cacheChartmetricIds():
-
-    db = Db('rca_db')
-    db.connect()
-
-    reporting_db = Db('reporting_db')
-    reporting_db.connect()
+def cacheChartmetricIds(settings, db):
 
     # Start by getting the spotify artist ids from our db
     string = """
@@ -19,6 +13,9 @@ def cacheChartmetricIds():
     df = db.execute(string)
 
     spotify_artist_ids = tuple(df['spotify_artist_id'].unique())
+
+    reporting_db = Db('reporting_db')
+    reporting_db.connect()
 
     # Get the charmetric mapping
     string = """
@@ -93,6 +90,9 @@ def cacheChartmetricIds():
     params = { 'spotify_ids': spotify_artist_ids }
     data = reporting_db.execute(string, params)
 
+    # Disconnect from reporting db
+    reporting_db.disconnect()
+
     # Attach the new ids to the existing artist_id/spotify_artist_id
     data = pd.merge(data, df[['artist_id', 'spotify_artist_id']], on='spotify_artist_id', how='inner')
 
@@ -106,16 +106,387 @@ def cacheChartmetricIds():
 
     # Insert updated records
     db.big_insert(data, 'nielsen_artist.cm_map')
-    db.commit()
 
-    db.disconnect()
-    reporting_db.disconnect()
-
-def cacheArtistDiscoveryStats():
+def cacheArtistDiscoveryStats(settings, db):
 
     string = """
-        begin;
+        -- Cache daily artist streams for discovery
+        delete from nielsen_artist.daily_streams_cache;
 
+        with streams as (
+            select
+                artist_id,
+                date,
+                streams,
+                (
+                case
+                    when prev is null or prev = 0 then 0
+                    when round(100 * (streams - prev)::numeric / prev, 2) < -50 then -50
+                    when round(100 * (streams - prev)::numeric / prev, 2) > 50 then 50
+                    else round(100 * (streams - prev)::numeric / prev, 2)
+                end
+                ) as pct_chg
+            from (
+                select
+                artist_id,
+                streams,
+                date,
+                lag(streams, 1) over (partition by artist_id order by date) as prev
+                from nielsen_artist.streams
+                where date >= now() - interval '6 months'
+                order by artist_id, date desc
+            ) q
+        ), tw_averages as (
+            select
+                artist_id,
+                tw_streams_avg,
+                tw_streams_rpc,
+                (
+                case
+                    when tw_streams_avg <= 1428 then 1
+                    when tw_streams_avg > 1428 and tw_streams_avg <= 2857 then 2
+                    when tw_streams_avg > 2857 and tw_streams_avg <= 5714 then 3
+                    when tw_streams_avg > 5714 and tw_streams_avg <= 14285 then 4
+                    when tw_streams_avg > 14285 and tw_streams_avg <= 35714 then 5
+                    when tw_streams_avg > 35714 and tw_streams_avg <= 71428 then 6
+                    when tw_streams_avg > 71428 and tw_streams_avg <= 142857 then 7
+                    when tw_streams_avg > 142857 and tw_streams_avg <= 357142 then 8
+                    when tw_streams_avg > 357142 then 9
+                end
+                ) as tw_streams_tier
+            from (
+                select
+                artist_id,
+                round(avg(streams)) as tw_streams_avg,
+                round(avg(pct_chg), 2) as tw_streams_rpc
+                from streams
+                where date >= now() - interval '10 days'
+                group by artist_id
+                having count(artist_id) > 5
+            ) q
+        ), tm_averages as (
+            select
+                artist_id,
+                tm_streams_avg,
+                tm_streams_rpc,
+                (
+                case
+                    when tm_streams_avg <= 1428 then 1
+                    when tm_streams_avg > 1428 and tm_streams_avg <= 2857 then 2
+                    when tm_streams_avg > 2857 and tm_streams_avg <= 5714 then 3
+                    when tm_streams_avg > 5714 and tm_streams_avg <= 14285 then 4
+                    when tm_streams_avg > 14285 and tm_streams_avg <= 35714 then 5
+                    when tm_streams_avg > 35714 and tm_streams_avg <= 71428 then 6
+                    when tm_streams_avg > 71428 and tm_streams_avg <= 142857 then 7
+                    when tm_streams_avg > 142857 and tm_streams_avg <= 357142 then 8
+                    when tm_streams_avg > 357142 then 9
+                end
+                ) as tm_streams_tier
+            from (
+                select
+                artist_id,
+                round(avg(streams)) as tm_streams_avg,
+                round(avg(pct_chg), 2) as tm_streams_rpc
+                from streams
+                where date >= now() - interval '32 days'
+                group by artist_id
+                having count(artist_id) > 23
+            ) q
+        ), sm_averages as (
+            select
+                artist_id,
+                sm_streams_avg,
+                sm_streams_rpc,
+                (
+                case
+                    when sm_streams_avg <= 1428 then 1
+                    when sm_streams_avg > 1428 and sm_streams_avg <= 2857 then 2
+                    when sm_streams_avg > 2857 and sm_streams_avg <= 5714 then 3
+                    when sm_streams_avg > 5714 and sm_streams_avg <= 14285 then 4
+                    when sm_streams_avg > 14285 and sm_streams_avg <= 35714 then 5
+                    when sm_streams_avg > 35714 and sm_streams_avg <= 71428 then 6
+                    when sm_streams_avg > 71428 and sm_streams_avg <= 142857 then 7
+                    when sm_streams_avg > 142857 and sm_streams_avg <= 357142 then 8
+                    when sm_streams_avg > 357142 then 9
+                end
+                ) as sm_streams_tier
+            from (
+                select
+                artist_id,
+                round(avg(streams)) as sm_streams_avg,
+                round(avg(pct_chg), 2) as sm_streams_rpc
+                from streams
+                group by artist_id
+                having count(artist_id) > 120
+            ) q
+        ), results as (
+            select
+                r.artist_id,
+                twa.tw_streams_avg,
+                twa.tw_streams_rpc,
+                twa.tw_streams_tier,
+                tma.tm_streams_avg,
+                tma.tm_streams_rpc,
+                tma.tm_streams_tier,
+                sma.sm_streams_avg,
+                sma.sm_streams_rpc,
+                sma.sm_streams_tier,
+                r.signed
+            from nielsen_artist.reports_recent r
+            left join tw_averages twa on r.artist_id = twa.artist_id
+            left join tm_averages tma on r.artist_id = tma.artist_id
+            left join sm_averages sma on r.artist_id = sma.artist_id
+            ), p as (
+            select
+                avg(tw_streams_rpc) + stddev(tw_streams_rpc) as tw_upper,
+                avg(tw_streams_rpc) - stddev(tw_streams_rpc) as tw_lower,
+                avg(tw_streams_rpc) as tw_avg,
+                avg(tm_streams_rpc) + stddev(tm_streams_rpc) as tm_upper,
+                avg(tm_streams_rpc) - stddev(tm_streams_rpc) as tm_lower,
+                avg(tm_streams_rpc) as tm_avg,
+                avg(sm_streams_rpc) + stddev(sm_streams_rpc) as sm_upper,
+                avg(sm_streams_rpc) - stddev(sm_streams_rpc) as sm_lower,
+                avg(sm_streams_rpc) as sm_avg
+            from results
+        ), final as (
+            select
+                *,
+                (
+                case
+                    when tw_streams_rpc < (select tw_lower from p) then 1
+                    when tw_streams_rpc >= (select tw_lower from p) and tw_streams_rpc < (select tw_avg from p) then 2
+                    when tw_streams_rpc >= (select tw_avg from p) and tw_streams_rpc < (select tw_upper from p) then 3
+                    when tw_streams_rpc >= (select tw_upper from p) then 4
+                    else 5
+                end
+                ) as tw_streams_status,
+                (
+                case
+                    when tm_streams_rpc < (select tm_lower from p) then 1
+                    when tm_streams_rpc >= (select tm_lower from p) and tm_streams_rpc < (select tm_avg from p) then 2
+                    when tm_streams_rpc >= (select tm_avg from p) and tm_streams_rpc < (select tm_upper from p) then 3
+                    when tm_streams_rpc >= (select tm_upper from p) then 4
+                    else 5
+                end
+                ) as tm_streams_status,
+                (
+                case
+                    when sm_streams_rpc < (select sm_lower from p) then 1
+                    when sm_streams_rpc >= (select sm_lower from p) and sm_streams_rpc < (select sm_avg from p) then 2
+                    when sm_streams_rpc >= (select sm_avg from p) and sm_streams_rpc < (select sm_upper from p) then 3
+                    when sm_streams_rpc >= (select sm_upper from p) then 4
+                    else 5
+                end
+                ) as sm_streams_status
+            from results
+        )
+
+        insert into nielsen_artist.daily_streams_cache (
+            artist_id,
+            tw_streams_avg, tw_streams_rpc, tw_streams_tier, tw_streams_status,
+            tm_streams_avg, tm_streams_rpc, tm_streams_tier, tm_streams_status,
+            sm_streams_avg, sm_streams_rpc, sm_streams_tier, sm_streams_status,
+            signed
+        )
+        select
+            artist_id,
+            tw_streams_avg, tw_streams_rpc, tw_streams_tier, tw_streams_status,
+            tm_streams_avg, tm_streams_rpc, tm_streams_tier, tm_streams_status,
+            sm_streams_avg, sm_streams_rpc, sm_streams_tier, sm_streams_status,
+            signed
+        from final;
+
+        -- Cache daily song streams for discovery
+        delete from nielsen_song.daily_streams_cache;
+
+        with streams as (
+            select
+                song_id,
+                date,
+                streams,
+                (
+                case
+                    when prev is null or prev = 0 then 0
+                    when round(100 * (streams - prev)::numeric / prev, 2) < -50 then -50
+                    when round(100 * (streams - prev)::numeric / prev, 2) > 50 then 50
+                    else round(100 * (streams - prev)::numeric / prev, 2)
+                end
+                ) as pct_chg
+            from (
+                select
+                song_id,
+                streams,
+                date,
+                lag(streams, 1) over (partition by song_id order by date) as prev
+                from nielsen_song.streams
+                where date >= now() - interval '6 months'
+                order by song_id, date desc
+            ) q
+        ), tw_averages as (
+            select
+                song_id,
+                tw_streams_avg,
+                tw_streams_rpc,
+                (
+                case
+                    when tw_streams_avg <= 1428 then 1
+                    when tw_streams_avg > 1428 and tw_streams_avg <= 2857 then 2
+                    when tw_streams_avg > 2857 and tw_streams_avg <= 5714 then 3
+                    when tw_streams_avg > 5714 and tw_streams_avg <= 14285 then 4
+                    when tw_streams_avg > 14285 and tw_streams_avg <= 35714 then 5
+                    when tw_streams_avg > 35714 and tw_streams_avg <= 71428 then 6
+                    when tw_streams_avg > 71428 and tw_streams_avg <= 142857 then 7
+                    when tw_streams_avg > 142857 and tw_streams_avg <= 357142 then 8
+                    when tw_streams_avg > 357142 then 9
+                end
+                ) as tw_streams_tier
+            from (
+                select
+                song_id,
+                round(avg(streams)) as tw_streams_avg,
+                round(avg(pct_chg), 2) as tw_streams_rpc
+                from streams
+                where date >= now() - interval '10 days'
+                group by song_id
+                having count(song_id) > 5
+            ) q
+        ), tm_averages as (
+            select
+                song_id,
+                tm_streams_avg,
+                tm_streams_rpc,
+                (
+                case
+                    when tm_streams_avg <= 1428 then 1
+                    when tm_streams_avg > 1428 and tm_streams_avg <= 2857 then 2
+                    when tm_streams_avg > 2857 and tm_streams_avg <= 5714 then 3
+                    when tm_streams_avg > 5714 and tm_streams_avg <= 14285 then 4
+                    when tm_streams_avg > 14285 and tm_streams_avg <= 35714 then 5
+                    when tm_streams_avg > 35714 and tm_streams_avg <= 71428 then 6
+                    when tm_streams_avg > 71428 and tm_streams_avg <= 142857 then 7
+                    when tm_streams_avg > 142857 and tm_streams_avg <= 357142 then 8
+                    when tm_streams_avg > 357142 then 9
+                end
+                ) as tm_streams_tier
+            from (
+                select
+                song_id,
+                round(avg(streams)) as tm_streams_avg,
+                round(avg(pct_chg), 2) as tm_streams_rpc
+                from streams
+                where date >= now() - interval '32 days'
+                group by song_id
+                having count(song_id) > 23
+            ) q
+        ), sm_averages as (
+            select
+                song_id,
+                sm_streams_avg,
+                sm_streams_rpc,
+                (
+                case
+                    when sm_streams_avg <= 1428 then 1
+                    when sm_streams_avg > 1428 and sm_streams_avg <= 2857 then 2
+                    when sm_streams_avg > 2857 and sm_streams_avg <= 5714 then 3
+                    when sm_streams_avg > 5714 and sm_streams_avg <= 14285 then 4
+                    when sm_streams_avg > 14285 and sm_streams_avg <= 35714 then 5
+                    when sm_streams_avg > 35714 and sm_streams_avg <= 71428 then 6
+                    when sm_streams_avg > 71428 and sm_streams_avg <= 142857 then 7
+                    when sm_streams_avg > 142857 and sm_streams_avg <= 357142 then 8
+                    when sm_streams_avg > 357142 then 9
+                end
+                ) as sm_streams_tier
+            from (
+                select
+                song_id,
+                round(avg(streams)) as sm_streams_avg,
+                round(avg(pct_chg), 2) as sm_streams_rpc
+                from streams
+                group by song_id
+                having count(song_id) > 120
+            ) q
+        ), results as (
+            select
+                r.song_id,
+                twa.tw_streams_avg,
+                twa.tw_streams_rpc,
+                twa.tw_streams_tier,
+                tma.tm_streams_avg,
+                tma.tm_streams_rpc,
+                tma.tm_streams_tier,
+                sma.sm_streams_avg,
+                sma.sm_streams_rpc,
+                sma.sm_streams_tier,
+                r.signed
+            from nielsen_song.reports_recent r
+            left join tw_averages twa on r.song_id = twa.song_id
+            left join tm_averages tma on r.song_id = tma.song_id
+            left join sm_averages sma on r.song_id = sma.song_id
+        ), p as (
+            select
+                avg(tw_streams_rpc) + stddev(tw_streams_rpc) as tw_upper,
+                avg(tw_streams_rpc) - stddev(tw_streams_rpc) as tw_lower,
+                avg(tw_streams_rpc) as tw_avg,
+                avg(tm_streams_rpc) + stddev(tm_streams_rpc) as tm_upper,
+                avg(tm_streams_rpc) - stddev(tm_streams_rpc) as tm_lower,
+                avg(tm_streams_rpc) as tm_avg,
+                avg(sm_streams_rpc) + stddev(sm_streams_rpc) as sm_upper,
+                avg(sm_streams_rpc) - stddev(sm_streams_rpc) as sm_lower,
+                avg(sm_streams_rpc) as sm_avg
+            from results
+            ), final as (
+            select
+                *,
+                (
+                case
+                    when tw_streams_rpc < (select tw_lower from p) then 1
+                    when tw_streams_rpc >= (select tw_lower from p) and tw_streams_rpc < (select tw_avg from p) then 2
+                    when tw_streams_rpc >= (select tw_avg from p) and tw_streams_rpc < (select tw_upper from p) then 3
+                    when tw_streams_rpc >= (select tw_upper from p) then 4
+                    else 5
+                end
+                ) as tw_streams_status,
+                (
+                case
+                    when tm_streams_rpc < (select tm_lower from p) then 1
+                    when tm_streams_rpc >= (select tm_lower from p) and tm_streams_rpc < (select tm_avg from p) then 2
+                    when tm_streams_rpc >= (select tm_avg from p) and tm_streams_rpc < (select tm_upper from p) then 3
+                    when tm_streams_rpc >= (select tm_upper from p) then 4
+                    else 5
+                end
+                ) as tm_streams_status,
+                (
+                case
+                    when sm_streams_rpc < (select sm_lower from p) then 1
+                    when sm_streams_rpc >= (select sm_lower from p) and sm_streams_rpc < (select sm_avg from p) then 2
+                    when sm_streams_rpc >= (select sm_avg from p) and sm_streams_rpc < (select sm_upper from p) then 3
+                    when sm_streams_rpc >= (select sm_upper from p) then 4
+                    else 5
+                end
+                ) as sm_streams_status
+            from results
+        )
+
+        insert into nielsen_song.daily_streams_cache (
+            song_id,
+            tw_streams_avg, tw_streams_rpc, tw_streams_tier, tw_streams_status,
+            tm_streams_avg, tm_streams_rpc, tm_streams_tier, tm_streams_status,
+            sm_streams_avg, sm_streams_rpc, sm_streams_tier, sm_streams_status,
+            signed
+        )
+        select
+            song_id,
+            tw_streams_avg, tw_streams_rpc, tw_streams_tier, tw_streams_status,
+            tm_streams_avg, tm_streams_rpc, tm_streams_tier, tm_streams_status,
+            sm_streams_avg, sm_streams_rpc, sm_streams_tier, sm_streams_status,
+            signed
+        from final;
+    """
+    db.execute(string)
+
+def cacheStreamingStats(settings, db):
+
+    string = """
         -- Cache daily artist streams for discovery
         delete from nielsen_artist.daily_streams_cache;
 
@@ -487,405 +858,12 @@ def cacheArtistDiscoveryStats():
         sm_streams_avg, sm_streams_rpc, sm_streams_tier, sm_streams_status,
         signed
         from final;
-        
-        commit;
     """
     db.execute(string)
 
-    db.disconnect()
-
-def cacheStreamingStats():
-
-    db = Db('rca_db')
-    db.connect()
+def cacheProjectReports(settings, db):
 
     string = """
-        begin;
-
-        -- Cache daily artist streams for discovery
-        delete from nielsen_artist.daily_streams_cache;
-
-        with streams as (
-        select
-            artist_id,
-            date,
-            streams,
-            (
-            case
-                when prev is null or prev = 0 then 0
-                when round(100 * (streams - prev)::numeric / prev, 2) < -50 then -50
-                when round(100 * (streams - prev)::numeric / prev, 2) > 50 then 50
-                else round(100 * (streams - prev)::numeric / prev, 2)
-            end
-            ) as pct_chg
-        from (
-            select
-            artist_id,
-            streams,
-            date,
-            lag(streams, 1) over (partition by artist_id order by date) as prev
-            from nielsen_artist.streams
-            where date >= now() - interval '6 months'
-            order by artist_id, date desc
-        ) q
-        ), tw_averages as (
-        select
-            artist_id,
-            tw_streams_avg,
-            tw_streams_rpc,
-            (
-            case
-                when tw_streams_avg <= 1428 then 1
-                when tw_streams_avg > 1428 and tw_streams_avg <= 2857 then 2
-                when tw_streams_avg > 2857 and tw_streams_avg <= 5714 then 3
-                when tw_streams_avg > 5714 and tw_streams_avg <= 14285 then 4
-                when tw_streams_avg > 14285 and tw_streams_avg <= 35714 then 5
-                when tw_streams_avg > 35714 and tw_streams_avg <= 71428 then 6
-                when tw_streams_avg > 71428 and tw_streams_avg <= 142857 then 7
-                when tw_streams_avg > 142857 and tw_streams_avg <= 357142 then 8
-                when tw_streams_avg > 357142 then 9
-            end
-            ) as tw_streams_tier
-        from (
-            select
-            artist_id,
-            round(avg(streams)) as tw_streams_avg,
-            round(avg(pct_chg), 2) as tw_streams_rpc
-            from streams
-            where date >= now() - interval '10 days'
-            group by artist_id
-            having count(artist_id) > 5
-        ) q
-        ), tm_averages as (
-        select
-            artist_id,
-            tm_streams_avg,
-            tm_streams_rpc,
-            (
-            case
-                when tm_streams_avg <= 1428 then 1
-                when tm_streams_avg > 1428 and tm_streams_avg <= 2857 then 2
-                when tm_streams_avg > 2857 and tm_streams_avg <= 5714 then 3
-                when tm_streams_avg > 5714 and tm_streams_avg <= 14285 then 4
-                when tm_streams_avg > 14285 and tm_streams_avg <= 35714 then 5
-                when tm_streams_avg > 35714 and tm_streams_avg <= 71428 then 6
-                when tm_streams_avg > 71428 and tm_streams_avg <= 142857 then 7
-                when tm_streams_avg > 142857 and tm_streams_avg <= 357142 then 8
-                when tm_streams_avg > 357142 then 9
-            end
-            ) as tm_streams_tier
-        from (
-            select
-            artist_id,
-            round(avg(streams)) as tm_streams_avg,
-            round(avg(pct_chg), 2) as tm_streams_rpc
-            from streams
-            where date >= now() - interval '32 days'
-            group by artist_id
-            having count(artist_id) > 23
-        ) q
-        ), sm_averages as (
-        select
-            artist_id,
-            sm_streams_avg,
-            sm_streams_rpc,
-            (
-            case
-                when sm_streams_avg <= 1428 then 1
-                when sm_streams_avg > 1428 and sm_streams_avg <= 2857 then 2
-                when sm_streams_avg > 2857 and sm_streams_avg <= 5714 then 3
-                when sm_streams_avg > 5714 and sm_streams_avg <= 14285 then 4
-                when sm_streams_avg > 14285 and sm_streams_avg <= 35714 then 5
-                when sm_streams_avg > 35714 and sm_streams_avg <= 71428 then 6
-                when sm_streams_avg > 71428 and sm_streams_avg <= 142857 then 7
-                when sm_streams_avg > 142857 and sm_streams_avg <= 357142 then 8
-                when sm_streams_avg > 357142 then 9
-            end
-            ) as sm_streams_tier
-        from (
-            select
-            artist_id,
-            round(avg(streams)) as sm_streams_avg,
-            round(avg(pct_chg), 2) as sm_streams_rpc
-            from streams
-            group by artist_id
-            having count(artist_id) > 120
-        ) q
-        ), results as (
-        select
-            r.artist_id,
-            twa.tw_streams_avg,
-            twa.tw_streams_rpc,
-            twa.tw_streams_tier,
-            tma.tm_streams_avg,
-            tma.tm_streams_rpc,
-            tma.tm_streams_tier,
-            sma.sm_streams_avg,
-            sma.sm_streams_rpc,
-            sma.sm_streams_tier,
-            r.signed
-        from nielsen_artist.reports_recent r
-        left join tw_averages twa on r.artist_id = twa.artist_id
-        left join tm_averages tma on r.artist_id = tma.artist_id
-        left join sm_averages sma on r.artist_id = sma.artist_id
-        ), p as (
-        select
-            avg(tw_streams_rpc) + stddev(tw_streams_rpc) as tw_upper,
-            avg(tw_streams_rpc) - stddev(tw_streams_rpc) as tw_lower,
-            avg(tw_streams_rpc) as tw_avg,
-            avg(tm_streams_rpc) + stddev(tm_streams_rpc) as tm_upper,
-            avg(tm_streams_rpc) - stddev(tm_streams_rpc) as tm_lower,
-            avg(tm_streams_rpc) as tm_avg,
-            avg(sm_streams_rpc) + stddev(sm_streams_rpc) as sm_upper,
-            avg(sm_streams_rpc) - stddev(sm_streams_rpc) as sm_lower,
-            avg(sm_streams_rpc) as sm_avg
-        from results
-        ), final as (
-        select
-            *,
-            (
-            case
-                when tw_streams_rpc < (select tw_lower from p) then 1
-                when tw_streams_rpc >= (select tw_lower from p) and tw_streams_rpc < (select tw_avg from p) then 2
-                when tw_streams_rpc >= (select tw_avg from p) and tw_streams_rpc < (select tw_upper from p) then 3
-                when tw_streams_rpc >= (select tw_upper from p) then 4
-                else 5
-            end
-            ) as tw_streams_status,
-            (
-            case
-                when tm_streams_rpc < (select tm_lower from p) then 1
-                when tm_streams_rpc >= (select tm_lower from p) and tm_streams_rpc < (select tm_avg from p) then 2
-                when tm_streams_rpc >= (select tm_avg from p) and tm_streams_rpc < (select tm_upper from p) then 3
-                when tm_streams_rpc >= (select tm_upper from p) then 4
-                else 5
-            end
-            ) as tm_streams_status,
-            (
-            case
-                when sm_streams_rpc < (select sm_lower from p) then 1
-                when sm_streams_rpc >= (select sm_lower from p) and sm_streams_rpc < (select sm_avg from p) then 2
-                when sm_streams_rpc >= (select sm_avg from p) and sm_streams_rpc < (select sm_upper from p) then 3
-                when sm_streams_rpc >= (select sm_upper from p) then 4
-                else 5
-            end
-            ) as sm_streams_status
-        from results
-        )
-
-        insert into nielsen_artist.daily_streams_cache (
-        artist_id,
-        tw_streams_avg, tw_streams_rpc, tw_streams_tier, tw_streams_status,
-        tm_streams_avg, tm_streams_rpc, tm_streams_tier, tm_streams_status,
-        sm_streams_avg, sm_streams_rpc, sm_streams_tier, sm_streams_status,
-        signed
-        )
-        select
-        artist_id,
-        tw_streams_avg, tw_streams_rpc, tw_streams_tier, tw_streams_status,
-        tm_streams_avg, tm_streams_rpc, tm_streams_tier, tm_streams_status,
-        sm_streams_avg, sm_streams_rpc, sm_streams_tier, sm_streams_status,
-        signed
-        from final;
-
-        -- Cache daily song streams for discovery
-        delete from nielsen_song.daily_streams_cache;
-
-        with streams as (
-        select
-            song_id,
-            date,
-            streams,
-            (
-            case
-                when prev is null or prev = 0 then 0
-                when round(100 * (streams - prev)::numeric / prev, 2) < -50 then -50
-                when round(100 * (streams - prev)::numeric / prev, 2) > 50 then 50
-                else round(100 * (streams - prev)::numeric / prev, 2)
-            end
-            ) as pct_chg
-        from (
-            select
-            song_id,
-            streams,
-            date,
-            lag(streams, 1) over (partition by song_id order by date) as prev
-            from nielsen_song.streams
-            where date >= now() - interval '6 months'
-            order by song_id, date desc
-        ) q
-        ), tw_averages as (
-        select
-            song_id,
-            tw_streams_avg,
-            tw_streams_rpc,
-            (
-            case
-                when tw_streams_avg <= 1428 then 1
-                when tw_streams_avg > 1428 and tw_streams_avg <= 2857 then 2
-                when tw_streams_avg > 2857 and tw_streams_avg <= 5714 then 3
-                when tw_streams_avg > 5714 and tw_streams_avg <= 14285 then 4
-                when tw_streams_avg > 14285 and tw_streams_avg <= 35714 then 5
-                when tw_streams_avg > 35714 and tw_streams_avg <= 71428 then 6
-                when tw_streams_avg > 71428 and tw_streams_avg <= 142857 then 7
-                when tw_streams_avg > 142857 and tw_streams_avg <= 357142 then 8
-                when tw_streams_avg > 357142 then 9
-            end
-            ) as tw_streams_tier
-        from (
-            select
-            song_id,
-            round(avg(streams)) as tw_streams_avg,
-            round(avg(pct_chg), 2) as tw_streams_rpc
-            from streams
-            where date >= now() - interval '10 days'
-            group by song_id
-            having count(song_id) > 5
-        ) q
-        ), tm_averages as (
-        select
-            song_id,
-            tm_streams_avg,
-            tm_streams_rpc,
-            (
-            case
-                when tm_streams_avg <= 1428 then 1
-                when tm_streams_avg > 1428 and tm_streams_avg <= 2857 then 2
-                when tm_streams_avg > 2857 and tm_streams_avg <= 5714 then 3
-                when tm_streams_avg > 5714 and tm_streams_avg <= 14285 then 4
-                when tm_streams_avg > 14285 and tm_streams_avg <= 35714 then 5
-                when tm_streams_avg > 35714 and tm_streams_avg <= 71428 then 6
-                when tm_streams_avg > 71428 and tm_streams_avg <= 142857 then 7
-                when tm_streams_avg > 142857 and tm_streams_avg <= 357142 then 8
-                when tm_streams_avg > 357142 then 9
-            end
-            ) as tm_streams_tier
-        from (
-            select
-            song_id,
-            round(avg(streams)) as tm_streams_avg,
-            round(avg(pct_chg), 2) as tm_streams_rpc
-            from streams
-            where date >= now() - interval '32 days'
-            group by song_id
-            having count(song_id) > 23
-        ) q
-        ), sm_averages as (
-        select
-            song_id,
-            sm_streams_avg,
-            sm_streams_rpc,
-            (
-            case
-                when sm_streams_avg <= 1428 then 1
-                when sm_streams_avg > 1428 and sm_streams_avg <= 2857 then 2
-                when sm_streams_avg > 2857 and sm_streams_avg <= 5714 then 3
-                when sm_streams_avg > 5714 and sm_streams_avg <= 14285 then 4
-                when sm_streams_avg > 14285 and sm_streams_avg <= 35714 then 5
-                when sm_streams_avg > 35714 and sm_streams_avg <= 71428 then 6
-                when sm_streams_avg > 71428 and sm_streams_avg <= 142857 then 7
-                when sm_streams_avg > 142857 and sm_streams_avg <= 357142 then 8
-                when sm_streams_avg > 357142 then 9
-            end
-            ) as sm_streams_tier
-        from (
-            select
-            song_id,
-            round(avg(streams)) as sm_streams_avg,
-            round(avg(pct_chg), 2) as sm_streams_rpc
-            from streams
-            group by song_id
-            having count(song_id) > 120
-        ) q
-        ), results as (
-        select
-            r.song_id,
-            twa.tw_streams_avg,
-            twa.tw_streams_rpc,
-            twa.tw_streams_tier,
-            tma.tm_streams_avg,
-            tma.tm_streams_rpc,
-            tma.tm_streams_tier,
-            sma.sm_streams_avg,
-            sma.sm_streams_rpc,
-            sma.sm_streams_tier,
-            r.signed
-        from nielsen_song.reports_recent r
-        left join tw_averages twa on r.song_id = twa.song_id
-        left join tm_averages tma on r.song_id = tma.song_id
-        left join sm_averages sma on r.song_id = sma.song_id
-        ), p as (
-        select
-            avg(tw_streams_rpc) + stddev(tw_streams_rpc) as tw_upper,
-            avg(tw_streams_rpc) - stddev(tw_streams_rpc) as tw_lower,
-            avg(tw_streams_rpc) as tw_avg,
-            avg(tm_streams_rpc) + stddev(tm_streams_rpc) as tm_upper,
-            avg(tm_streams_rpc) - stddev(tm_streams_rpc) as tm_lower,
-            avg(tm_streams_rpc) as tm_avg,
-            avg(sm_streams_rpc) + stddev(sm_streams_rpc) as sm_upper,
-            avg(sm_streams_rpc) - stddev(sm_streams_rpc) as sm_lower,
-            avg(sm_streams_rpc) as sm_avg
-        from results
-        ), final as (
-        select
-            *,
-            (
-            case
-                when tw_streams_rpc < (select tw_lower from p) then 1
-                when tw_streams_rpc >= (select tw_lower from p) and tw_streams_rpc < (select tw_avg from p) then 2
-                when tw_streams_rpc >= (select tw_avg from p) and tw_streams_rpc < (select tw_upper from p) then 3
-                when tw_streams_rpc >= (select tw_upper from p) then 4
-                else 5
-            end
-            ) as tw_streams_status,
-            (
-            case
-                when tm_streams_rpc < (select tm_lower from p) then 1
-                when tm_streams_rpc >= (select tm_lower from p) and tm_streams_rpc < (select tm_avg from p) then 2
-                when tm_streams_rpc >= (select tm_avg from p) and tm_streams_rpc < (select tm_upper from p) then 3
-                when tm_streams_rpc >= (select tm_upper from p) then 4
-                else 5
-            end
-            ) as tm_streams_status,
-            (
-            case
-                when sm_streams_rpc < (select sm_lower from p) then 1
-                when sm_streams_rpc >= (select sm_lower from p) and sm_streams_rpc < (select sm_avg from p) then 2
-                when sm_streams_rpc >= (select sm_avg from p) and sm_streams_rpc < (select sm_upper from p) then 3
-                when sm_streams_rpc >= (select sm_upper from p) then 4
-                else 5
-            end
-            ) as sm_streams_status
-        from results
-        )
-
-        insert into nielsen_song.daily_streams_cache (
-        song_id,
-        tw_streams_avg, tw_streams_rpc, tw_streams_tier, tw_streams_status,
-        tm_streams_avg, tm_streams_rpc, tm_streams_tier, tm_streams_status,
-        sm_streams_avg, sm_streams_rpc, sm_streams_tier, sm_streams_status,
-        signed
-        )
-        select
-        song_id,
-        tw_streams_avg, tw_streams_rpc, tw_streams_tier, tw_streams_status,
-        tm_streams_avg, tm_streams_rpc, tm_streams_tier, tm_streams_status,
-        sm_streams_avg, sm_streams_rpc, sm_streams_tier, sm_streams_status,
-        signed
-        from final;
-        
-        commit;
-    """
-    db.execute(string)
-
-def cacheProjectReports():
-
-    db = Db('rca_db')
-    db.connect()
-
-    string = """
-        begin;
-
         -- Projects
         delete from nielsen_project.reports_recent;
 
@@ -1007,8 +985,6 @@ def cacheProjectReports():
 
         insert into nielsen_song.track_collections (song_id, unified_collection_id)
         select song_id, unified_collection_id from tmp;
-
-        commit;
     """
     db.execute(string)
 
@@ -1017,21 +993,30 @@ class PipelineManager(PipelineBase):
     def __init__(self):
         PipelineBase.__init__(self)
 
-def monday_weekly():
+def monday_weekly(settings):
 
     print('Running monday weekly functions')
     pipe = PipelineManager()
 
-    cacheChartmetricIds()
+    db = Db('rca_db')
+    db.connect()
+
+    cacheChartmetricIds(settings, db)
     pipe.printFnComplete('Cached Chartmetric Ids')
 
-    cacheArtistDiscoveryStats()
+    cacheArtistDiscoveryStats(settings, db)
     pipe.printFnComplete('Cached Artist Discovery Stats')
 
-    cacheStreamingStats()
+    cacheStreamingStats(settings, db)
     pipe.printFnComplete('Cached Streaming Stats')
 
-    cacheProjectReports()
+    cacheProjectReports(settings, db)
     pipe.printFnComplete('Cached Project Reports')
+
+    # Only commit our changes if we aren't testing
+    if settings['is_testing'] == False:
+        db.commit()
+
+    db.disconnect()
 
     pipe.printSuccess('Completed monday functions')
