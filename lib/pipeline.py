@@ -2780,3 +2780,35 @@ def test_pipeline(settings, test_type):
     pipe.printStage('Stage: 1 - processArtists, processSongs')
     test_processArtists(db, pipe, test_type)
     test_processSongs(db, pipe, test_type)
+
+    """
+        At this point, our tests have basically been completed. We would normally commit the changes,
+        but because this is a test, we're just going to roll everything back, and instead create a test
+        case for an actual insert.
+    """
+
+    # Rollback our changes
+    # DO NOT TOUCH THIS LINE, WE CANNOT COMMIT CHANGES PRIOR TO THIS, BUT WE ARE GOING TO
+    # COMMIT CHANGES IN THE NEXT LINES.
+    db.rollback()
+
+    # Create the test table if it doesn't already exist. I created it, but just in case
+    # you want to delete it and retest...
+    string = """
+        create table if not exists pipeline_test (
+            test_value text,
+            timestamp timestamp default current_timestamp
+        );
+    """
+    db.execute(string)
+
+    # Perform a test insert of this table. It comes with a timestamp so you should be able
+    # to see the latest test case in there inserted if all goes according to plan.
+    string = """
+        insert into pipeline_test (test_value)
+        values ('Pipeline test complete!')
+    """
+    db.execute(string)
+
+    # Commit the test changes to the db
+    db.commit()
