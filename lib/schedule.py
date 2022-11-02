@@ -28,8 +28,9 @@ def schedule(settings):
 
     elif settings['day_of_week'] == 'Tuesday':
 
-        print('Running: Main pipeline')
+        print('Running: Main pipeline, global pipeline')
         pipeline(settings)
+        global_pipeline(settings)
 
     elif settings['day_of_week'] == 'Wednesday':
 

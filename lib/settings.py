@@ -34,9 +34,10 @@ def get_settings():
 
     # Determine the global data data, which is basically just
     # going to be -3 days from the date that we're running
+    # We do this to account for the fact that the global data tends to come
+    # in rather late, so we're always a day behind to make sure that all the
+    # files have a chance to get there.
     global_date_delta = 3
-    if day_of_week == 'Monday':
-        global_date_delta += 1
     global_date = run_date - timedelta(global_date_delta)
 
     # Determine wether or not we're testing
