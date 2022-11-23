@@ -13,17 +13,17 @@ import random
 import os
 
 
-def getDateCols(cols):
-    
-    # Convert a string to a date object
-    def str2Date(s):
+# Convert a string to a date object
+def str2Date(s):
+    try:
+        return datetime.strptime(s, '%m/%d/%Y')
+    except ValueError:
         try:
-            return datetime.strptime(s, '%m/%d/%Y')
+            return datetime.strptime(s, '%Y-%m-%d')
         except ValueError:
-            try:
-                return datetime.strptime(s, '%Y-%m-%d')
-            except ValueError:
-                return False
+            return False
+
+def getDateCols(cols):
     
     idx = []
     for col in cols:
@@ -41,7 +41,7 @@ def getDateIndicies(cols):
             idx.append(col)
     return idx
 
-def validateSession(pipe):
+def validateSession():
 
     """
         In order to reduce the chances of making an error deep down the line in our pipeline,
@@ -70,7 +70,7 @@ def validateSession(pipe):
     print('Check 2: Files are readable')
 
     # We should have all the columns that we expect
-    def generateDateColumns(df, starting_date):
+    def generateDateColumns(starting_date):
 
         # Generate daily streaming date columns
         date_columns = []
@@ -86,7 +86,7 @@ def validateSession(pipe):
                 raise Exception(f'{filename} file is missing required column: {col}')
 
     # Create columns for artist file
-    artist_date_columns = generateDateColumns(artists, pipe.date - timedelta(days=2))
+    artist_date_columns = generateDateColumns(pipe.date - timedelta(days=2))
     artist_required_columns = [
         'TW Rank', 'LW Rank', 'Artist', 'UnifiedArtistID',
         'TW On-Demand Audio Streams', 'LW On-Demand Audio Streams',
@@ -101,7 +101,7 @@ def validateSession(pipe):
     ]
 
     # Create columns for song file
-    song_date_columns = generateDateColumns(songs, pipe.date - timedelta(days=2))
+    song_date_columns = generateDateColumns(pipe.date - timedelta(days=2))
     song_date_columns_mod = []
     for date in song_date_columns:
         song_date_columns_mod.append(date + ' - Total ODA')
@@ -148,7 +148,7 @@ def validateSession(pipe):
     
     print('All checks passed!')
 
-def findSignedByCopyrights(df, db):
+def findSignedByCopyrights(df):
 
     """
 
@@ -190,7 +190,7 @@ def findSignedByCopyrights(df, db):
 
     return df
 
-def basicSignedCheck(df, db):
+def basicSignedCheck(df):
 
     """
         @param | df with columns: copyrights(str) | signed(bool)
@@ -359,7 +359,7 @@ def cleanArtists(df):
     return meta, streams
 
 # Apply another layer of detecting 'signed' with a running list of signed artists
-def filterBySignedArtistsList(df, db):
+def filterBySignedArtistsList(df):
     
     # Read in the signed artists that are tracked
     artists_df = db.execute('select * from misc.signed_artists')
@@ -370,7 +370,7 @@ def filterBySignedArtistsList(df, db):
     
     return df
 
-def prepareArtistData(df, db):
+def prepareArtistData(df):
     
     time = Time()
     
@@ -385,7 +385,7 @@ def prepareArtistData(df, db):
     
     return meta, streams
 
-def artistsDbUpdates(db, meta, streams):
+def artistsDbUpdates(meta, streams):
 
     time = Time()
 
@@ -533,7 +533,7 @@ def artistsDbUpdates(db, meta, streams):
     print(f'{num_inserts} inserts | {num_updates} updates')
     time.elapsed()
 
-def processArtists(db, pipe):
+def processArtists():
 
     """
         Official method for processing nielsen's Artist file.
@@ -552,7 +552,7 @@ def processArtists(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Artists processed'))
 
-def filterSignedSongs(df, db):
+def filterSignedSongs(df):
     
     def filterSignedFilter(row, labels, labels_fuzz, artists):
     
@@ -722,7 +722,7 @@ def cleanSongs(df):
     
     return meta, total, premium, ad_supported
 
-def appendToSignedArtistList(df, db):
+def appendToSignedArtistList(df):
     
     # Get the signed songs from our dataset
     signed_df = df.loc[df['signed'] == True, ['artist']].reset_index(drop=True)
@@ -737,7 +737,7 @@ def appendToSignedArtistList(df, db):
     db.big_insert(new_signed, 'misc.signed_artists')
     print(f'Inserted {new_signed.shape[0]} new signed artists to tracker...')
 
-def prepareSongData(df, db):
+def prepareSongData(df):
     
     time = Time()
     
@@ -774,7 +774,7 @@ def prepareSongData(df, db):
     
     return meta, streams
 
-def songsDbUpdates(db, meta, streams):
+def songsDbUpdates(meta, streams):
 
     time = Time()
 
@@ -950,7 +950,7 @@ def songsDbUpdates(db, meta, streams):
     print(f'{num_inserts} inserts | {num_updates} updates')
     time.elapsed()
 
-def processSongs(db, pipe):
+def processSongs():
 
     """
         Official method for processing nielsen's Song file.
@@ -969,7 +969,7 @@ def processSongs(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Songs processed'))
 
-def updateRecentDate(db, pipe):
+def updateRecentDate():
 
     time = Time()
 
@@ -988,7 +988,7 @@ def updateRecentDate(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Recent date updated'))
 
-def refreshStats(db, pipe):
+def refreshStats():
 
     time = Time()
 
@@ -1001,7 +1001,7 @@ def refreshStats(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Stats refreshed for artists, songs & projects'))
 
-def refreshArtistTracks(db, pipe):
+def refreshArtistTracks():
 
     time = Time()
 
@@ -1324,7 +1324,7 @@ def getSpotifySongs(df):
 
     return df
 
-def cacheSpotifySongs(db, pipe):
+def cacheSpotifySongs():
 
     """
         Cache new information about inserted songs from nielsen song files.
@@ -1608,7 +1608,7 @@ def getSpotifyAlbumInfo(df, spotify):
 
     return df
     
-def cacheSpotifyArtists(db, pipe):
+def cacheSpotifyArtists():
 
     time = Time()
 
@@ -1667,7 +1667,7 @@ def cacheSpotifyArtists(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Spotify artists cached'))
 
-def cacheChartmetricIds(db, pipe):
+def cacheChartmetricIds():
 
     """
         Cache the mapping of artist ids to their respective social
@@ -1863,7 +1863,7 @@ def refreshGenreSparklines(db):
     """
     db.execute(string)
 
-def updateGenres(db, pipe):
+def updateGenres():
 
     """
         Update all information about genres that connects artist data
@@ -1881,7 +1881,7 @@ def updateGenres(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Genres updated'))
 
-def cacheSpotifyAlbums(db, pipe):
+def cacheSpotifyAlbums():
 
     """
         Cache information about spotify albums relavent to our database.
@@ -1970,7 +1970,7 @@ def cacheSpotifyAlbums(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Cached spotify albums'))
 
-def filterSignedFromSpotifyCopyrights(db, pipe):
+def filterSignedFromSpotifyCopyrights():
 
     """
         Use the spotify copyrights to filter signed artists
@@ -2092,7 +2092,7 @@ def filterSignedFromSpotifyCopyrights(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Filtered signed artists'))
 
-def refreshReportsRecent(db, pipe):
+def refreshReportsRecent():
 
     time = Time()
 
@@ -2104,7 +2104,7 @@ def refreshReportsRecent(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Refreshed reports recent'))
 
-def recordGenreCharts(db, pipe):
+def recordGenreCharts():
 
     """
         Record where everyone sits in their genres.
@@ -2221,7 +2221,7 @@ def recordGenreCharts(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Recorded genre charts'))
 
-def refreshDailyReport(db, pipe):
+def refreshDailyReport():
 
     time = Time()
 
@@ -2232,7 +2232,7 @@ def refreshDailyReport(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Daily report refreshed'))
 
-def refreshSimpleViews(db, pipe):
+def refreshSimpleViews():
 
     time = Time()
 
@@ -2244,7 +2244,7 @@ def refreshSimpleViews(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Refreshed simple views'))
 
-def updateSpotifyCharts(db, pipe):
+def updateSpotifyCharts():
 
     time = Time()
 
@@ -2552,7 +2552,7 @@ def updateSpotifyCharts(db, pipe):
 
     pipe.printFnComplete(time.getElapsed('Spotify charts updated'))
 
-def pipeline(settings):
+def pipeline():
 
     """
         Shell function for running the full pipeline from nielsen.
@@ -2571,12 +2571,11 @@ def pipeline(settings):
     """
     # Init Pipeline (the beginning method basically just creates all the filenames)
     pipe = PipelineManager()
-    pipe.init(settings)
 
     pipe.printStage('Stage: 0 - Initialize')
 
     # Validate that everything seems in order
-    validateSession(pipe)
+    validateSession()
 
     # Connect to our database and start transactions
     db = Db('rca_db')
@@ -2589,9 +2588,9 @@ def pipeline(settings):
             - updateRecentDate | Update the most recent date of data received.
     """
     pipe.printStage('Stage: 1 - processArtists, processSongs, updateRecentDate')
-    processArtists(db, pipe)
-    processSongs(db, pipe)
-    updateRecentDate(db, pipe)
+    processArtists()
+    processSongs()
+    updateRecentDate()
 
     """
         Stage 2:
@@ -2604,8 +2603,8 @@ def pipeline(settings):
                 = Caches spotify information about songs
     """
     pipe.printStage('Stage: 2 - refreshStats, cacheSpotifySongs')
-    refreshStats(db, pipe)
-    cacheSpotifySongs(db, pipe)
+    refreshStats()
+    cacheSpotifySongs()
 
     """
         Stage 3:
@@ -2618,8 +2617,8 @@ def pipeline(settings):
             
     """
     pipe.printStage('Stage: 3 - refreshArtistTracks, cacheSpotifyAlbums')
-    refreshArtistTracks(db, pipe)
-    cacheSpotifyAlbums(db, pipe)
+    refreshArtistTracks()
+    cacheSpotifyAlbums()
 
     """
         Stage 4:
@@ -2628,7 +2627,7 @@ def pipeline(settings):
                     : Small optimization by connecting artists to songs and their spotify artist ids
     """
     pipe.printStage('Stage: 4 - cacheSpotifyArtists')
-    cacheSpotifyArtists(db, pipe)
+    cacheSpotifyArtists()
 
     """
         Stage 5:
@@ -2640,9 +2639,9 @@ def pipeline(settings):
                 = Depends on cacheSpotifySongs, cacheSpotifyArtists
     """
     pipe.printStage('Stage: 5 - cacheChartmetricIds, updateGenres, filterSignedFromSpotifyCopyrights')
-    cacheChartmetricIds(db, pipe)
-    updateGenres(db, pipe)
-    filterSignedFromSpotifyCopyrights(db, pipe)
+    cacheChartmetricIds()
+    updateGenres()
+    filterSignedFromSpotifyCopyrights()
 
     """
         Stage 6:
@@ -2652,8 +2651,8 @@ def pipeline(settings):
                 = Depends on updateGenres, refreshStats
     """
     pipe.printStage('Stage: 6 - refreshReportsRecent, recordGenreCharts')
-    refreshReportsRecent(db, pipe)
-    recordGenreCharts(db, pipe)
+    refreshReportsRecent()
+    recordGenreCharts()
 
     """
         Stage 7:
@@ -2661,7 +2660,7 @@ def pipeline(settings):
                 = Depends on refreshStats, cacheSpotifySongs, refreshReportsRecent
     """
     pipe.printStage('Stage: 7 - refreshDailyReport')
-    refreshDailyReport(db, pipe)
+    refreshDailyReport()
 
     """
         Stage 8:
@@ -2669,7 +2668,7 @@ def pipeline(settings):
                 = Depends on refreshReportsRecent, spotify artist/song data, refreshStats
     """
     pipe.printStage('Stage: 8 - refreshSimpleViews')
-    refreshSimpleViews(db, pipe)
+    refreshSimpleViews()
 
     """
         Stage 9:
@@ -2677,10 +2676,10 @@ def pipeline(settings):
                 = Depends on refreshSimpleViews
     """
     pipe.printStage('Stage: 9 - updateSpotifyCharts')
-    updateSpotifyCharts(db, pipe)
+    updateSpotifyCharts()
 
-    # Clean up and log the total time for the pipeline and disconnect from database
-    pipe.finish(db)
+    # Commit changes
+    self.commit()
 
 
 """
@@ -2758,7 +2757,6 @@ def test_pipeline(settings, test_type):
         from the sftp server.
     """
     pipe = PipelineManager()
-    pipe.init(settings)
 
     """
         Validate that everything seems in order.
