@@ -1,7 +1,7 @@
 from .global_pipeline import global_pipeline
 from .pipeline import pipeline
 from .mapping_table import mapping_table
-from .monday_weekly import monday_weekly
+from .weekly_functions import monday_weekly
 
 def schedule(settings):
 

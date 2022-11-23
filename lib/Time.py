@@ -1,5 +1,4 @@
 from time import perf_counter as trackTime
-from datetime import datetime
 import math
 
 
@@ -9,28 +8,21 @@ class Time:
 
         self.time = trackTime()
 
-    def elapsed(self, msg=None):
+    def printElapsed(self):
             
         elapsed = trackTime() - self.time
         minutes = math.floor(elapsed / 60)
         seconds = round(elapsed % 60)
         
-        if msg is None:
-            print('Elapsed: {}m {}s'.format(minutes, seconds))
-            return
+        print('Elapsed: {}m {}s'.format(minutes, seconds))
 
-        print('{} | Elapsed: {}m {}s'.format(msg, minutes, seconds))
-
-    def getElapsed(self, msg=None):
+    def getElapsed(self):
 
         elapsed = trackTime() - self.time
         minutes = math.floor(elapsed / 60)
         seconds = round(elapsed % 60)
 
-        if msg is None:
-            return 'Elapsed: {}m {}s'.format(minutes, seconds)
-
-        return '{} | Elapsed: {}m {}s'.format(msg, minutes, seconds)
+        return '{}m {}s'.format(minutes, seconds)
 
     def reset(self):
         

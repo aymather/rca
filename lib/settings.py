@@ -1,5 +1,4 @@
-from .schedule import schedule
-from datetime import datetime, timedelta
+from datetime import datetime
 import argparse
 
 def get_settings():
@@ -29,17 +28,6 @@ def get_settings():
     formatted_run_date = run_date.strftime('%Y-%m-%d')
     print(f'Run date: {formatted_run_date}')
 
-    # Get the day of the week from the date
-    day_of_week = run_date.strftime('%A')
-
-    # Determine the global data data, which is basically just
-    # going to be -3 days from the date that we're running
-    # We do this to account for the fact that the global data tends to come
-    # in rather late, so we're always a day behind to make sure that all the
-    # files have a chance to get there.
-    global_date_delta = 3
-    global_date = run_date - timedelta(global_date_delta)
-
     # Determine wether or not we're testing
     if args.testing is None:
 
@@ -56,9 +44,7 @@ def get_settings():
     # Build the runtime settings
     settings = {
         'date': run_date,
-        'global_date': global_date,
-        'is_testing': is_testing,
-        'day_of_week': day_of_week
+        'is_testing': is_testing
     }
 
     return settings
