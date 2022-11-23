@@ -32,15 +32,6 @@ def getDateCols(cols):
             idx.append(col)
     return idx
 
-# Convert columns into correct date indicies
-def getDateIndicies(cols):
-    idx = []
-    for col in cols:
-        d = str2Date(col)
-        if d:
-            idx.append(col)
-    return idx
-
 def validateSession():
 
     """
@@ -983,7 +974,7 @@ def updateRecentDate():
         set value = %(recent_date)s
         where id = 1
     """
-    params = { 'recent_date': datetime.strftime(pipe.date - timedelta(2), format='%Y-%m-%d') }
+    params = { 'recent_date': datetime.strftime(pipe.date - timedelta(2), '%Y-%m-%d') }
     db.execute(string, params)
 
     pipe.printFnComplete(time.getElapsed('Recent date updated'))
