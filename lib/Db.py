@@ -1,4 +1,4 @@
-from .env import TMP_FOLDER, RCA_DB, REPORTING_DB
+from .env import TMP_FOLDER, RCA_DB_PROD, REPORTING_DB
 from datetime import datetime
 from psycopg2 import sql
 from psycopg2.extensions import register_adapter, AsIs
@@ -20,7 +20,7 @@ register_adapter(np.float64, addapt_numpy_float64)
 register_adapter(np.int64, addapt_numpy_int64)
 
 db_connections = {
-    'rca_db': RCA_DB,
+    'rca_db': RCA_DB_PROD,
     'reporting_db': REPORTING_DB
 }
 
