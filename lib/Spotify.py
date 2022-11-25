@@ -3,9 +3,36 @@ from .Fuzz import Fuzz
 import pandas as pd
 import requests
 import spotipy
+import random
+from typing import List
 
-# We will retry on any status code higher than 400
-status_forcelist = tuple( x for x in requests.status_codes._codes if x >= 400 )
+
+def request_wrapper(func):
+
+    def wrapper(self, *args, **kwargs):
+
+        # Refresh the token
+        if random.random() < self.refresh_rate:
+            self.refresh()
+
+        count = 0
+        while count < self.retries:
+
+            try:
+
+                # Search spotify api
+                res = func(self, *args, **kwargs)
+
+                return res
+
+            except Exception as e:
+                print(str(e))
+
+            count += 1
+
+        raise Exception(f'Error getting spotify data with query: ' + str(args[0]))
+
+    return wrapper
 
 # Class for making spotify client handling easier
 class Spotify:
@@ -19,6 +46,8 @@ class Spotify:
         self.auth_token = None
         self.username = 'Aaron Dombey'
         self.scope = 'playlist-modify-public'
+        self.retries = 5
+        self.refresh_rate = 0.1 # Every time we search for something we're gunna randomly refresh the access token at this rate
 
         self.sp = self.create()
 
@@ -28,16 +57,10 @@ class Spotify:
             Simple method to test and make sure that spotify's api is available and working.
         """
 
-        try:
-
-            self.getArtistByName('John Mayer')
-            print('Successful connection to Spotify Api')
-
-        except Exception as e:
-            raise(f'Error connecting to Spotify Api: {str(e)}')
+        self.getArtistByName('John Mayer')
+        print('Successful connection to Spotify Api')
         
     def refresh(self):
-        
         self.sp = self.create()
         
     def create(self):
@@ -47,13 +70,16 @@ class Spotify:
                                                    client_id=self.client_id,
                                                    client_secret=self.client_secret,
                                                    redirect_uri=self.redirect_uri)
+
+        if spotify_token is None:
+            raise Exception('Error getting spotify token')
+
         self.auth_token = 'Bearer ' + spotify_token
 
         sp = spotipy.Spotify(
             auth=spotify_token,
             requests_timeout=10,
             retries=10,
-            status_forcelist=status_forcelist,
             status_retries=10
         )
         
@@ -63,15 +89,64 @@ class Spotify:
         
         headers = { 'Authorization': self.auth_token }
     
-        res = requests.get(url, headers=headers)
+        res = requests.get(url, headers=headers) # type: ignore
 
         if res.status_code < 400:
 
             return res.json()
 
         return None
+
+    @request_wrapper
+    def searchArtists(self, q: str, limit: int = 25):
+
+        """
+            Generic search function to make requests to spotify for artists.
+        """
+
+        # Search spotify api
+        res = self.sp.search(q=q, type='artist', limit=limit)
+
+        if res is None:
+            raise Exception('Error getting spotify data from query: ' + q)
+
+        items = [i for i in res['artists']['items'] if i is not None]
+        return items
+
+    @request_wrapper
+    def searchTracks(self, q: str, limit: int = 25):
+
+        """
+            Generic search function to make requets to spotify for tracks.
+        """
+
+        # Search spotify api
+        res = self.sp.search(q=q, type='track', limit=limit)
+
+        if res is None:
+            raise Exception('Error getting spotify data from query: ' + q)
+
+        items = [i for i in res['tracks']['items'] if i is not None]
+        return items
     
+    @request_wrapper
+    def albums(self, album_ids: List[str]):
+        
+        res = self.sp.albums(album_ids)
+
+        if res is None:
+            raise Exception('Error getting albums by album ids: ' + ','.join(album_ids))
+
+        res = res['albums']
+        res = [i for i in res if i is not None]
+        return res
+
     def getArtistByName(self, name):
+
+        """
+            This function does a little bit of work to try to find an individual artist,
+            returns None if it is unable to find a good match.
+        """
 
         name = name.replace('[', '').replace(',', '').replace(']', '').replace('&', ' ').split('Feat.')[0][:100]
 
@@ -79,10 +154,7 @@ class Spotify:
             return None
         
         # Query the spotify api
-        results = self.sp.search(name, limit=20, type='artist')
-        
-        # Filter results to exclude NoneTypes
-        items = [i for i in results['artists']['items'] if i is not None]
+        items = self.searchArtists(name, limit=20)
         
         # Check for a perfect match on first item, if we find one, just return that
         if len(items) > 0 and items[0]['name'] == name:
@@ -94,7 +166,7 @@ class Spotify:
         
         # Fuzzy match
         fuzz = Fuzz(artist_names)
-        ratio, match, isExact = fuzz.check(name)
+        ratio, match, _ = fuzz.check(name)
         
         # Threshold is 0.9 for correctness
         if ratio >= 0.9:
@@ -112,12 +184,9 @@ class Spotify:
 
         if len(name) == 0:
             return None
-        
+
         # Query the spotify api
-        results = self.sp.search(name, limit=20, type='artist')
-        
-        # Filter results to exclude NoneTypes
-        items = [i for i in results['artists']['items'] if i is not None]
+        items = self.searchArtists(name, limit=20)
         
         # Check for a perfect match on first item, if we find one, just return that
         if len(items) > 0 and items[0]['name'] == name:
@@ -129,7 +198,7 @@ class Spotify:
         
         # Fuzzy match
         fuzz = Fuzz(artist_names)
-        ratio, match, isExact = fuzz.check(name)
+        ratio, match, _ = fuzz.check(name)
         
         # Threshold is 0.9 for correctness
         if ratio >= 0.9 and match is not None:
@@ -152,8 +221,7 @@ class Spotify:
         # Build query
         q = 'track:{} artist:{}'.format(title, artist)
 
-        # Hit the spotify api
-        results = self.sp.search(q=q, type="track", limit = 10)
+        track_items = self.searchTracks(q, limit=10)
 
         """
         STRATEGY 1:
@@ -162,11 +230,6 @@ class Spotify:
         match.
         Also alphabetize everything to prevent unordered consequences.
         """
-
-        # Extract results and make sure we at least got something
-        # If track is not available in our market, then it gets returned as None
-        # so we need to filter that out.
-        track_items = [i for i in results['tracks']['items'] if i is not None]
 
         # If we got results, proceed with this strategy
         if len(track_items) > 0:
@@ -231,10 +294,8 @@ class Spotify:
         track_q = 'track:{}'.format(title)
 
         # Try searching by just the track name
-        track_results = self.sp.search(q=track_q, type='track', limit=20)
+        track_items = self.searchTracks(track_q, limit=20)
 
-        # Check if we got any results
-        track_items = [i for i in track_results['tracks']['items'] if i is not None]
         if len(track_items) > 0:
 
             # Transform the list of tracks' artists into an array of artists

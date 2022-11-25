@@ -7,10 +7,11 @@ from typing import Callable, List
 
 class PipelineBase(ABC):
 
-    def __init__(self, db_name='rca_db'):
+    def __init__(self, db_name):
+
+        self.db_name = db_name
 
         # Chalk settings
-        self.stageColor = chalk.red
         self.fnCompleteColor = chalk.cyan
         self.successColor = chalk.green
 
@@ -25,16 +26,13 @@ class PipelineBase(ABC):
         self.funcs: List[Callable] = []
         self.func_names: List[str] = []
 
-    def printStage(self, msg: str = '') -> None:
-        print(self.stageColor(msg))
-
     def printFnComplete(self, msg: str = '') -> None:
         print(self.fnCompleteColor(msg))
 
     def printSuccess(self, msg: str = '') -> None:
         print(self.successColor(msg))
 
-    def add_function(self, func: Callable, name: str):
+    def add_function(self, func: Callable, name: str) -> None:
         self.funcs.append(func)
         self.func_names.append(name)
 
@@ -44,18 +42,24 @@ class PipelineBase(ABC):
             Run the pipeline which is built from the self.build function
         """
 
-        # Start timer
-        time = Time()
+        # Build the pipeline depending on whether we're testing or not
+        if self.settings['is_testing'] == True:
+            self.test_build()
+        else:
+            self.build()
 
+        pipelineTime = Time()
         for func, name in zip(self.funcs, self.func_names):
 
             print(f'Running function: {name}')
+            fnTime = Time()
             func()
-            self.printFnComplete(name)
+            self.printFnComplete(name + ': ' + fnTime.getElapsed())
+
+        self.commit()
 
         # Print the finished time
-        print(self.successColor(time.getElapsed()))
-        self.printSuccess(f'Pipeline {self.__class__.__name__} success: {time.getElapsed()}')
+        self.printSuccess(f'Pipeline {self.__class__.__name__} success: {pipelineTime.getElapsed()}')
 
     def commit(self):
         
@@ -70,4 +74,8 @@ class PipelineBase(ABC):
 
     @abstractmethod
     def build(self):
+        pass
+
+    @abstractmethod
+    def test_build(self):
         pass

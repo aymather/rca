@@ -5,7 +5,7 @@ def get_settings():
 
     """
         This function parses the command line inputs (or lack thereof)
-        and builds the runtime settings.
+        and builds the runtime settings for PipelineBase.
     """
 
     # Get the command line arguments

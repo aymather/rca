@@ -3,8 +3,8 @@ from .PipelineBase import PipelineBase
 from .functions import chunker
 from .Sftp import Sftp
 from .Spotify import Spotify
+from zipfile import ZipFile
 from .Fuzz import Fuzz
-from .Time import Time
 from .Db import Db
 from requests.exceptions import ReadTimeout
 from datetime import datetime, timedelta
@@ -49,102 +49,47 @@ def getDateIndicies(cols):
             idx.append(col)
     return idx
 
-def findSignedByCopyrights(df):
-
-    """
-
-        Basic check between copyrights and our list of labels.
-
-        Uses: misc.list_of_labels
-
-        @param df(copyrights, signed, *)
-        @returns df(copyrights, signed, *)
-
-    """
-    
-    def findSignedByCopyrightsFilter(row, labels):
-        
-        if row['signed'] == True:
-            return True
-
-        # Extract values
-        df_label = row['copyrights'].lower()
-
-        # Find matches
-        res = [ele for ele in labels if(ele.lower() in df_label)]
-        res = bool(res)
-
-        if res == True:
-            return True
-        else:
-            return False
-
-    # Load in nielsen_labels
-    nielsen_labels = db.execute('select * from misc.list_of_labels')
-    labels = nielsen_labels['label'].values
-
-    # Fill na values to avoid errors
-    df['copyrights'] = df['copyrights'].fillna('')
-
-    # Apply filter fn
-    df['signed'] = df.apply(findSignedByCopyrightsFilter, labels=labels, axis=1)
-
-    return df
-
-def basicSignedCheck(df):
-
-    """
-        @param | df with columns: copyrights(str) | signed(bool)
-    """
-
-    # Apply another layer of detecting 'signed' with a running list of signed artists
-    def filterBySignedArtistsList(df, db):
-        
-        def filterBySignedArtistsListFilter(row, fuzz):
-
-            # If we already know they're signed, return
-            if row['signed'] == True:
-                return True
-
-            # Preprocess the artist name
-            artist = row['artist']
-
-            # Check against fuzzyset
-            ratio, match, exactMatch = fuzz.check(artist)
-
-            if ratio >= 0.95:
-                return True
-            else:
-                return False
-
-        # Read in the csv for signed_artists
-        artists_df = db.execute('select * from misc.signed_artists')
-        artists = artists_df.drop_duplicates(keep='first').artist.values
-
-        # Create fuzzyset
-        fuzz = Fuzz(artists)
-
-        # Check each artist name against fuzzyset and determine if they are signed
-        df['signed'] = df.apply(filterBySignedArtistsListFilter, fuzz=fuzz, axis=1)
-
-        return df
-
-    df = findSignedByCopyrights(df, db)
-
-    if 'artist' in df:
-        df = filterBySignedArtistsList(df, db)
-
-    return df
-
 # Convert to property datetime format for merging later
 def tDate(d):
     m, d, y = d.split('/')
     return f'{y}-{m}-{d}'
 
+def transformSpotifyArtistObject(artist):
+
+    def get_image(arr):
+
+        if len(arr) == 0:
+            return None
+        else:
+            arr.sort(key=lambda x: x['height'], reverse=True)
+            return arr[0]['url']
+
+    url = artist['external_urls']['spotify'] if 'external_urls' in artist and 'spotify' in artist['external_urls'] else None
+    followers = artist['followers']['total'] if 'followers' in artist and 'total' in artist['followers'] else None
+    genres = '/'.join(artist['genres']) if artist['genres'] is not None else None
+    api_url = artist['href'] if 'href' in artist else None
+    spotify_artist_id = artist['id'] if 'id' in artist else None
+    spotify_image = get_image(artist['images'])
+    name = artist['name'] if 'name' in artist else None
+    popularity = artist['popularity'] if 'popularity' in artist else None
+    uri = artist['uri'] if 'uri' in artist else None
+
+    return {
+        'url': url,
+        'followers': followers,
+        'genres': genres,
+        'api_url': api_url,
+        'spotify_artist_id': spotify_artist_id,
+        'spotify_image': spotify_image,
+        'name': name,
+        'popularity': popularity,
+        'uri': uri
+    }
+
 class NielsenDailyUSPipeline(PipelineBase):
 
-    def __init__(self):
-        PipelineBase.__init__(self)
+    def __init__(self, db_name):
+        PipelineBase.__init__(self, db_name)
 
         # Make folders if they don't already exist
         if os.path.isdir(LOCAL_ARCHIVE_FOLDER) == False:
@@ -193,6 +138,62 @@ class NielsenDailyUSPipeline(PipelineBase):
             'exports': os.path.join(REPORTS_FOLDER, EXPORTS_TEMPLATE.format(formatted_date))
         }
 
+    def downloadFiles(self):
+
+        """
+            If we haven't already downloaded the files, download them
+            from nielsen.
+        """
+
+        # Only download if some file is missing
+        if os.path.exists(self.fullfiles['artist']) == False or os.path.exists(self.fullfiles['song']) == False:
+
+            # Init SFTP client
+            sftp = Sftp('nielsen_daily')
+
+            # Download remote zip file to our local download folder
+            sftp.get(self.fullfiles['zip_remote_archive'], self.fullfiles['zip'])
+
+            # Unzip
+            with ZipFile(self.fullfiles['zip'], 'r') as file_ref:
+                file_ref.extractall(LOCAL_DOWNLOAD_FOLDER)
+
+            # We can delete the old song file
+            os.remove(self.fullfiles['old_song'])
+
+            # Move the zip files into the archive (don't do this unless we have the required files)
+            os.rename(self.fullfiles['zip'], self.fullfiles['zip_local_archive'])
+
+            # Remove this annoying folder that sometimes comes from our zip files
+            if os.path.isdir(os.path.join(LOCAL_DOWNLOAD_FOLDER, MAC_FOLDER)):
+                os.rmdir(MAC_FOLDER)
+
+            # Create an exports directory
+            if os.path.isdir(self.folders['exports']) == False:
+                os.mkdir(self.folders['exports'])
+
+            print(f"Initialized file: {self.fullfiles['zip']}")
+
+        else:
+
+            print(f"File {self.fullfiles['zip']} already initialized")
+
+    def deleteFiles(self):
+
+        """
+            Delete the files we've downloaded from nielsen. This isn't a big deal
+            if we're running it from docker because the container will be destroyed anyway,
+            but just in case we're running it locally on our computer, we'll do this anyway.
+        """
+
+        # Delete artist file
+        if os.path.exists(self.fullfiles['artist']):
+            os.remove(self.fullfiles['artist'])
+
+        # Delete song file
+        if os.path.exists(self.fullfiles['song']):
+            os.remove(self.fullfiles['song'])
+
     def validateSession(self):
 
         """
@@ -238,7 +239,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     raise Exception(f'{filename} file is missing required column: {col}')
 
         # Create columns for artist file
-        artist_date_columns = generateDateColumns(self.date - timedelta(days=2))
+        artist_date_columns = generateDateColumns(self.settings['date'] - timedelta(days=2))
         artist_required_columns = [
             'TW Rank', 'LW Rank', 'Artist', 'UnifiedArtistID',
             'TW On-Demand Audio Streams', 'LW On-Demand Audio Streams',
@@ -253,7 +254,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         ]
 
         # Create columns for song file
-        song_date_columns = generateDateColumns(self.date - timedelta(days=2))
+        song_date_columns = generateDateColumns(self.settings['date'] - timedelta(days=2))
         song_date_columns_mod = []
         for date in song_date_columns:
             song_date_columns_mod.append(date + ' - Total ODA')
@@ -282,7 +283,8 @@ class NielsenDailyUSPipeline(PipelineBase):
         print('Check 3: Files are formatted properly')
 
         # We should be able to connect to both databases and make a query
-        self.db.test()
+        postgres_db = Db(self.db_name)
+        postgres_db.test()
 
         print('Check 4: Postgres db valid')
 
@@ -299,9 +301,102 @@ class NielsenDailyUSPipeline(PipelineBase):
         
         print('All checks passed!')
 
-    
+    def findSignedByCopyrights(self, df: pd.DataFrame):
 
-    def cleanArtists(df):
+        """
+
+            Basic check between copyrights and our list of labels.
+
+            Uses: misc.list_of_labels
+
+            @param df(copyrights, signed, *)
+            @returns df(copyrights, signed, *)
+
+        """
+        
+        def findSignedByCopyrightsFilter(row, labels):
+            
+            if row['signed'] == True:
+                return True
+
+            # Extract values
+            df_label = row['copyrights'].lower()
+
+            # Find matches
+            res = [ele for ele in labels if(ele.lower() in df_label)]
+            res = bool(res)
+
+            if res == True:
+                return True
+            else:
+                return False
+
+        # Load in nielsen_labels
+        nielsen_labels = self.db.execute('select * from misc.list_of_labels')
+
+        if nielsen_labels is None:
+            raise Exception('Nielsen labels do not exist.')
+
+        labels = nielsen_labels['label'].values
+
+        # Fill na values to avoid errors
+        df['copyrights'] = df['copyrights'].fillna('')
+
+        # Apply filter fn
+        df['signed'] = df.apply(findSignedByCopyrightsFilter, labels=labels, axis=1)
+
+        return df
+     
+    def basicSignedCheck(self, df: pd.DataFrame):
+
+        """
+            @param | df with columns: copyrights(str) | signed(bool)
+        """
+
+        # Apply another layer of detecting 'signed' with a running list of signed artists
+        def filterBySignedArtistsList(df):
+            
+            def filterBySignedArtistsListFilter(row, fuzz):
+
+                # If we already know they're signed, return
+                if row['signed'] == True:
+                    return True
+
+                # Preprocess the artist name
+                artist = row['artist']
+
+                # Check against fuzzyset
+                ratio, _, _ = fuzz.check(artist)
+
+                if ratio >= 0.95:
+                    return True
+                else:
+                    return False
+
+            # Read in the csv for signed_artists
+            artists_df = self.db.execute('select * from misc.signed_artists')
+
+            if artists_df is None:
+                raise Exception('Missing signed artists template.')
+
+            artists = artists_df.drop_duplicates(keep='first').artist.values
+
+            # Create fuzzyset
+            fuzz = Fuzz(artists)
+
+            # Check each artist name against fuzzyset and determine if they are signed
+            df['signed'] = df.apply(filterBySignedArtistsListFilter, fuzz=fuzz, axis=1)
+
+            return df
+
+        df = self.findSignedByCopyrights(df)
+
+        if 'artist' in df:
+            df = filterBySignedArtistsList(df)
+
+        return df
+
+    def cleanArtists(self, df: pd.DataFrame):
         
         # Rename columns for consistency & database usage
         rename_columns = {
@@ -420,10 +515,14 @@ class NielsenDailyUSPipeline(PipelineBase):
         return meta, streams
 
     # Apply another layer of detecting 'signed' with a running list of signed artists
-    def filterBySignedArtistsList(df):
+    def filterBySignedArtistsList(self, df: pd.DataFrame):
         
         # Read in the signed artists that are tracked
-        artists_df = db.execute('select * from misc.signed_artists')
+        artists_df = self.db.execute('select * from misc.signed_artists')
+
+        if artists_df is None:
+            raise Exception('Missing signed artists template')
+
         artists = artists_df['artist'].values
         
         # Check if they're in our signed list
@@ -431,24 +530,17 @@ class NielsenDailyUSPipeline(PipelineBase):
         
         return df
 
-    def prepareArtistData(df):
-        
-        time = Time()
+    def prepareArtistData(self, df: pd.DataFrame):
         
         # Clean & standardize data
-        meta, streams = cleanArtists(df)
+        meta, streams = self.cleanArtists(df)
         
         # Add the 'signed' status to the artist
-        meta = filterBySignedArtistsList(meta, db)
-        
-        print(f'Finished cleaning artist data')
-        time.elapsed()
+        meta = self.filterBySignedArtistsList(meta)
         
         return meta, streams
 
-    def artistsDbUpdates(meta, streams):
-
-        time = Time()
+    def artistsDbUpdates(self, meta: pd.DataFrame, streams: pd.DataFrame):
 
         # META
         string = """
@@ -469,8 +561,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                 report_date date
             );
         """
-        db.execute(string)
-        db.big_insert(meta, 'tmp_meta')
+        self.db.execute(string)
+        self.db.big_insert(meta, 'tmp_meta')
 
         # REPORTS
         string = """
@@ -505,7 +597,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             from tmp_meta tm
             left join nielsen_artist.meta m on tm.unified_artist_id = m.unified_artist_id;
         """
-        db.execute(string)
+        self.db.execute(string)
 
         # STREAMS
         string = """
@@ -515,8 +607,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                 streams int
             );
         """
-        db.execute(string)
-        db.big_insert(streams, 'tmp_streams')
+        self.db.execute(string)
+        self.db.big_insert(streams, 'tmp_streams')
         
         # Streaming inserts / updates
         string = """
@@ -576,7 +668,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             union all
             select count(*) as value, 'inserts' as name from inserts
         """
-        results = db.execute(string)
+        results = self.db.execute(string)
 
         # Clean up
         string = """
@@ -586,34 +678,36 @@ class NielsenDailyUSPipeline(PipelineBase):
             drop table inserts;
             drop table updates;
         """
-        db.execute(string)
+        self.db.execute(string)
+
+        if results is None:
+            raise Exception('Error getting artist updates')
 
         # RESULTS
         num_inserts = results.loc[results['name'] == 'inserts', 'value'].iloc[0]
         num_updates = results.loc[results['name'] == 'updates', 'value'].iloc[0]
-        print(f'{num_inserts} inserts | {num_updates} updates')
-        time.elapsed()
+        print(f'Artist updates: {num_inserts} inserts | {num_updates} updates')
 
-    def processArtists():
+    def processArtists(self):
 
         """
             Official method for processing nielsen's Artist file.
         """
 
-        time = Time()
-
         # Read in the data
         df = pd.read_csv(self.fullfiles['artist'], encoding='UTF-16')
 
+        # If we're in test mode, just take a subset
+        if self.settings['is_testing'] == True:
+            df = df.iloc[:100].reset_index(drop=True)
+
         # Clean dataframe
-        meta, streams = prepareArtistData(df, db)
+        meta, streams = self.prepareArtistData(df)
 
         # Database updates
-        artistsDbUpdates(db, meta, streams)
+        self.artistsDbUpdates(meta, streams)
 
-        self.printFnComplete(time.getElapsed('Artists processed'))
-
-    def filterSignedSongs(df):
+    def filterSignedSongs(self, df: pd.DataFrame):
         
         def filterSignedFilter(row, labels, labels_fuzz, artists):
         
@@ -629,7 +723,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 return True
             
             # If we didn't find the label match, then our fallback is to fuzzy match
-            ratio, match, exactMatch = labels_fuzz.check(df_label)
+            ratio, match, _ = labels_fuzz.check(df_label)
 
             # If the fuzzy ratio is over 90% then you can say we found a match
             if df_label == match or ratio > 0.9:
@@ -643,21 +737,29 @@ class NielsenDailyUSPipeline(PipelineBase):
             return False
         
         # Load in nielsen_labels
-        nielsen_labels = db.execute('select * from misc.nielsen_labels')
+        nielsen_labels = self.db.execute('select * from misc.nielsen_labels')
+
+        if nielsen_labels is None:
+            raise Exception('Error getting nielsen labels template')
+
         labels = nielsen_labels['label'].values
         
         # Create Fuzz
         labels_fuzz = Fuzz(labels)
         
         # Read in the csv for signed_artists
-        artists_df = db.execute('select * from misc.signed_artists where artist is not null')
+        artists_df = self.db.execute('select * from misc.signed_artists where artist is not null')
+
+        if artists_df is None:
+            raise Exception('Error getting signed artists template')
+
         artists = artists_df.drop_duplicates(keep='first').artist.values
         
         df['signed'] = df.apply(filterSignedFilter, labels=labels, labels_fuzz=labels_fuzz, artists=artists, axis=1)
         
         return df
 
-    def cleanSongs(df):
+    def cleanSongs(self, df: pd.DataFrame):
         
         # Rename the remaining columns for consistency and database usage
         renameable = {
@@ -783,27 +885,27 @@ class NielsenDailyUSPipeline(PipelineBase):
         
         return meta, total, premium, ad_supported
 
-    def appendToSignedArtistList(df):
+    def appendToSignedArtistList(self, df: pd.DataFrame):
         
         # Get the signed songs from our dataset
         signed_df = df.loc[df['signed'] == True, ['artist']].reset_index(drop=True)
 
         # Get the existing signed artists
-        signed_existing = db.execute('select * from misc.signed_artists')
+        signed_existing = self.db.execute('select * from misc.signed_artists')
+        if signed_existing is None:
+            raise Exception('Missing signed artists template')
 
         # Get the artists in our new df that don't exist already
         new_signed = signed_df[(~signed_df['artist'].isin(signed_existing['artist'])) & (~signed_df['artist'].isnull())].reset_index(drop=True)
         
         # Upload newly signed artists to the tracker
-        db.big_insert(new_signed, 'misc.signed_artists')
+        self.db.big_insert(new_signed, 'misc.signed_artists')
         print(f'Inserted {new_signed.shape[0]} new signed artists to tracker...')
 
-    def prepareSongData(df):
-        
-        time = Time()
+    def prepareSongData(self, df: pd.DataFrame):
         
         # Basic cleanup and separation of datasets
-        meta, total, premium, ad_supported = cleanSongs(df)
+        meta, total, premium, ad_supported = self.cleanSongs(df)
 
         # Get the date indicies for the daily streaming data
         dateCols = getDateCols(total)
@@ -815,10 +917,10 @@ class NielsenDailyUSPipeline(PipelineBase):
         meta['report_date'] = pd.to_datetime(dateCols[0])
 
         # Mark who is signed and who isn't
-        meta = filterSignedSongs(meta, db)
+        meta = self.filterSignedSongs(meta)
 
         # Add signed artists to running list
-        appendToSignedArtistList(meta, db)
+        self.appendToSignedArtistList(meta)
         
         # Pivot all the streaming data from wide to long format
         total = total.melt(id_vars='unified_song_id', var_name='date', value_name='streams')
@@ -829,15 +931,9 @@ class NielsenDailyUSPipeline(PipelineBase):
         streams = pd.merge(total, ad_supported, on=['unified_song_id', 'date'])
         streams = pd.merge(streams, premium, on=['unified_song_id', 'date'])
         
-        # Print the elapsed time & results
-        print(f'Finished cleaning song data')
-        time.elapsed()
-        
         return meta, streams
 
-    def songsDbUpdates(meta, streams):
-
-        time = Time()
+    def songsDbUpdates(self, meta: pd.DataFrame, streams: pd.DataFrame):
 
         # META / REPORTS / ISRC UPDATES
         string = """
@@ -862,8 +958,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                 report_date date
             );
         """
-        db.execute(string)
-        db.big_insert(meta, 'tmp_meta')
+        self.db.execute(string)
+        self.db.big_insert(meta, 'tmp_meta')
 
         string = """
             -- META
@@ -913,7 +1009,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             ) isrc_updates
             where m.unified_song_id = isrc_updates.unified_song_id;
         """
-        db.execute(string)
+        self.db.execute(string)
 
         # STREAMS
         string = """
@@ -925,8 +1021,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                 premium int
             );
         """
-        db.execute(string)
-        db.big_insert(streams, 'tmp_streams')
+        self.db.execute(string)
+        self.db.big_insert(streams, 'tmp_streams')
 
         string = """
             create temp table streams as (
@@ -993,7 +1089,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             union all
             select count(*) as value, 'inserts' as name from inserts
         """
-        results = db.execute(string)
+        results = self.db.execute(string)
 
         # Clean up
         string = """
@@ -1003,36 +1099,36 @@ class NielsenDailyUSPipeline(PipelineBase):
             drop table inserts;
             drop table updates;
         """
-        db.execute(string)
+        self.db.execute(string)
+
+        if results is None:
+            raise Exception('Error getting song updates')
 
         # Print the elapsed time & results
         num_inserts = results.loc[results['name'] == 'inserts', 'value'].iloc[0]
         num_updates = results.loc[results['name'] == 'updates', 'value'].iloc[0]
-        print(f'{num_inserts} inserts | {num_updates} updates')
-        time.elapsed()
+        print(f'Song updates: {num_inserts} inserts | {num_updates} updates')
 
-    def processSongs():
+    def processSongs(self):
 
         """
             Official method for processing nielsen's Song file.
         """
 
-        time = Time()
-
         # Read in the data
         df = pd.read_csv(self.fullfiles['song'], encoding='UTF-16')
 
+        # If we're in test mode, just take a subset
+        if self.settings['is_testing'] == True:
+            df = df.iloc[:100].reset_index(drop=True)
+
         # Clean data
-        meta, streams = prepareSongData(df, db)
+        meta, streams = self.prepareSongData(df)
 
         # Database updates
-        songsDbUpdates(db, meta, streams)
+        self.songsDbUpdates(meta, streams)
 
-        self.printFnComplete(time.getElapsed('Songs processed'))
-
-    def updateRecentDate():
-
-        time = Time()
+    def updateRecentDate(self):
 
         """
             Updates the recent report date we store so we don't have to calculate it
@@ -1044,36 +1140,26 @@ class NielsenDailyUSPipeline(PipelineBase):
             set value = %(recent_date)s
             where id = 1
         """
-        params = { 'recent_date': datetime.strftime(self.date - timedelta(2), format='%Y-%m-%d') }
-        db.execute(string, params)
+        params = { 'recent_date': datetime.strftime(self.settings['date'] - timedelta(2), '%Y-%m-%d') }
+        self.db.execute(string, params)
 
-        self.printFnComplete(time.getElapsed('Recent date updated'))
-
-    def refreshStats():
-
-        time = Time()
+    def refreshStats(self):
 
         string = """
             refresh materialized view concurrently nielsen_artist.__stats;
             refresh materialized view concurrently nielsen_song.__stats;
             refresh materialized view concurrently nielsen_project.__stats;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-        self.printFnComplete(time.getElapsed('Stats refreshed for artists, songs & projects'))
-
-    def refreshArtistTracks():
-
-        time = Time()
+    def refreshArtistTracks(self):
 
         string = """
             refresh materialized view concurrently nielsen_artist.__artist_tracks;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-        self.printFnComplete(time.getElapsed('Artist tracks refreshed'))
-
-    def getSpotifySongs(df):
+    def getSpotifySongs(self, df: pd.DataFrame):
 
         """
             Takes in a dataframe with columns:
@@ -1103,7 +1189,6 @@ class NielsenDailyUSPipeline(PipelineBase):
             spotify_album_id = song['album']['id']
             spotify_artist_id = song['artists'][0]['id']
             
-            href = song['href']
             is_local = song['is_local']
             name = song['name']
             popularity = song['popularity']
@@ -1142,23 +1227,14 @@ class NielsenDailyUSPipeline(PipelineBase):
             # If we already have the data, skip
             if pd.notnull(row['spotify_track_id']):
                 return pd.Series({ key: row[key] for key in track_columns })
-            
-            # We're going to use our spotify client, refresh every 10% of the time
-            if random.random() < 0.1:
-                spotify.refresh()
 
             isrc = row['isrc']
             if pd.notnull(isrc):
 
-                try:
-                    res = spotify.sp.search(q=f'isrc:{isrc}', type='track')
-                except ReadTimeout:
-                    res = spotify.sp.search(q=f'isrc:{isrc}', type='track')
-
-                items = [i for i in res['tracks']['items'] if i is not None]
+                items = spotify.searchTracks(f'isrc:{isrc}')
             
                 if len(items) > 0:
-                    return pd.Series(extractSongInfo(res['tracks']['items'][0]))
+                    return pd.Series(extractSongInfo(items[0]))
 
             # If we don't find anything then just resort to searching by title / artist
             res = spotify.searchByTitleAndArtist(row['title'], row['artist'])
@@ -1230,6 +1306,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                 """
                 params = { 'isrcs': isrcs }
                 spotify = reporting_db.execute(string, params)
+                if spotify is None:
+                    raise Exception('Error getting from chartmetric_raw.spotify')
 
                 # Disconnect from reporting db
                 reporting_db.disconnect()
@@ -1385,13 +1463,11 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def cacheSpotifySongs():
+    def cacheSpotifySongs(self):
 
         """
             Cache new information about inserted songs from nielsen song files.
         """
-
-        time = Time()
 
         # Get the songs that need to be cached
         string = """
@@ -1400,10 +1476,13 @@ class NielsenDailyUSPipeline(PipelineBase):
             where id not in (select song_id from nielsen_song.spotify)
                 and is_global is false
         """
-        df = db.execute(string)
+        df = self.db.execute(string)
+
+        if df is None:
+            return
 
         # Get the spotify info from the api
-        df = getSpotifySongs(df)
+        df = self.getSpotifySongs(df)
 
         # Drop unnecessary columns
         df.drop(columns=['isrc', 'title', 'artist'], inplace=True)
@@ -1424,43 +1503,9 @@ class NielsenDailyUSPipeline(PipelineBase):
         df.loc[df['release_date'] == '0000-01-01', 'release_date'] = '2000-01-01'
 
         # Insert new spotify information
-        db.big_insert(df, 'nielsen_song.spotify')
+        self.db.big_insert(df, 'nielsen_song.spotify')
 
-        self.printFnComplete(time.getElapsed('Spotify songs cached'))
-
-    def transformSpotifyArtistObject(artist):
-            
-        def get_image(arr):
-
-            if len(arr) == 0:
-                return None
-            else:
-                arr.sort(key=lambda x: x['height'], reverse=True)
-                return arr[0]['url']
-
-        url = artist['external_urls']['spotify'] if 'external_urls' in artist and 'spotify' in artist['external_urls'] else None
-        followers = artist['followers']['total'] if 'followers' in artist and 'total' in artist['followers'] else None
-        genres = '/'.join(artist['genres']) if artist['genres'] is not None else None
-        api_url = artist['href'] if 'href' in artist else None
-        spotify_artist_id = artist['id'] if 'id' in artist else None
-        spotify_image = get_image(artist['images'])
-        name = artist['name'] if 'name' in artist else None
-        popularity = artist['popularity'] if 'popularity' in artist else None
-        uri = artist['uri'] if 'uri' in artist else None
-
-        return {
-            'url': url,
-            'followers': followers,
-            'genres': genres,
-            'api_url': api_url,
-            'spotify_artist_id': spotify_artist_id,
-            'spotify_image': spotify_image,
-            'name': name,
-            'popularity': popularity,
-            'uri': uri
-        }
-
-    def bulkGetSpotifyArtistInfo(df, spotify):
+    def bulkGetSpotifyArtistInfo(self, df: pd.DataFrame, spotify: Spotify) -> pd.DataFrame:
 
         """
             Bulk add all the artists by spotify_artist_id
@@ -1474,11 +1519,10 @@ class NielsenDailyUSPipeline(PipelineBase):
         artist_ids = df.loc[(~df['spotify_artist_id'].isnull()) & (df['spotify_artist_id'] != ''), 'spotify_artist_id'].unique()
 
         # Loop through in chunks of 50
-        count = 0
         data = []
         max_chunk = 50
         chunks = chunker(artist_ids, max_chunk)
-        for i, chunk in enumerate(chunks):
+        for chunk in chunks:
 
             if random.random() < 0.1:
                 spotify.refresh()
@@ -1506,7 +1550,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def getSpotifyArtistInfo(df, spotify):
+    def getSpotifyArtistInfo(self, df: pd.DataFrame, spotify: Spotify) -> pd.DataFrame:
 
         """
             Manually search artists who didn't have a spotify artist id
@@ -1558,7 +1602,6 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         # Only do something if we have data to get
         mask = (df['spotify_artist_id'].isnull()) | (df['spotify_artist_id'] == '')
-        fill_total = df[mask].shape[0]
         total = df.shape[0]
         if total > 0:
 
@@ -1566,7 +1609,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def getSpotifyPopularTrackId(df, spotify):
+    def getSpotifyPopularTrackId(self, df: pd.DataFrame, spotify: Spotify) -> pd.DataFrame:
 
         """
             Attach the ids of the most popular album / track.
@@ -1615,7 +1658,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def getSpotifyAlbumInfo(df, spotify):
+    def getSpotifyAlbumInfo(self, df: pd.DataFrame, spotify: Spotify) -> pd.DataFrame:
 
         """
             Takes the 'spotify_popular_track_id' column and attaches copyright info about that track
@@ -1637,20 +1680,12 @@ class NielsenDailyUSPipeline(PipelineBase):
         album_ids = df.loc[(pd.notnull(df['spotify_popular_album_id'])) & (df['spotify_popular_album_id'] != ''), 'spotify_popular_album_id'].unique().tolist()
 
         # Loop through in chunks of 20
-        count = 0
         data = []
         chunks = chunker(album_ids, 20)
-        for i, chunk in enumerate(chunks):
+        for chunk in chunks:
 
-            if random.random() < 0.1:
-                spotify.refresh()
-
-            try:
-                res = spotify.sp.albums(chunk)
-            except ReadTimeout:
-                res = spotify.sp.albums(chunk)
-
-            res = [album2Data(i) for i in res['albums']]
+            res = spotify.albums(chunk)
+            res = [album2Data(i) for i in res]
 
             data = [ *data, *res ]
 
@@ -1669,9 +1704,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
         
-    def cacheSpotifyArtists():
-
-        time = Time()
+    def cacheSpotifyArtists(self):
 
         # Get new artists inserted into the db
         string = """
@@ -1707,16 +1740,19 @@ class NielsenDailyUSPipeline(PipelineBase):
             ) q
             order by artist_id, count desc
         """
-        df = db.execute(string)
+        df = self.db.execute(string)
+
+        if df is None:
+            raise Exception('Error getting spotify artists to cache')
 
         # Init spotify client
         spotify = Spotify()
 
         # Get spotify info
-        df = bulkGetSpotifyArtistInfo(df, spotify)
-        df = getSpotifyArtistInfo(df, spotify)
-        df = getSpotifyPopularTrackId(df, spotify)
-        df = getSpotifyAlbumInfo(df, spotify)
+        df = self.bulkGetSpotifyArtistInfo(df, spotify)
+        df = self.getSpotifyArtistInfo(df, spotify)
+        df = self.getSpotifyPopularTrackId(df, spotify)
+        df = self.getSpotifyAlbumInfo(df, spotify)
 
         # Drop down unnecessary columns
         df.drop(columns=['artist'], inplace=True)
@@ -1724,11 +1760,9 @@ class NielsenDailyUSPipeline(PipelineBase):
         df = df.astype({ 'followers': 'int', 'popularity': 'int' })
 
         # Insert into cache
-        db.big_insert(df, 'nielsen_artist.spotify')
+        self.db.big_insert(df, 'nielsen_artist.spotify')
 
-        self.printFnComplete(time.getElapsed('Spotify artists cached'))
-
-    def cacheChartmetricIds():
+    def cacheChartmetricIds(self):
 
         """
             Cache the mapping of artist ids to their respective social
@@ -1739,8 +1773,6 @@ class NielsenDailyUSPipeline(PipelineBase):
             artist_id -> tiktok_id
             artist_id -> spotify_id
         """
-
-        time = Time()
 
         # Create a connection to the reporting db
         reporting_db = Db('reporting_db')
@@ -1755,7 +1787,9 @@ class NielsenDailyUSPipeline(PipelineBase):
                 and artist_id not in (select artist_id from nielsen_artist.cm_map)
             limit 100
         """
-        df = db.execute(string)
+        df = self.db.execute(string)
+        if df is None:
+            return
 
         # Get the charmetric mapping
         string = """
@@ -1832,19 +1866,19 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         params = { 'spotify_ids': tuple(df['spotify_artist_id'].values) }
         data = reporting_db.execute(string, params)
+        if data is None:
+            return
 
         # Merge onto our database map
         df = pd.merge(df, data, how='left')
 
         # Insert into our db
-        db.big_insert(df, 'nielsen_artist.cm_map')
+        self.db.big_insert(df, 'nielsen_artist.cm_map')
 
         # Disconnect from the reporting db
         reporting_db.disconnect()
 
-        self.printFnComplete(time.getElapsed('Chartmetric cached'))
-
-    def insertNewGenres(db):
+    def insertNewGenres(self):
 
         string = """
             create temp table tmp_new_genres (genre) as (
@@ -1865,11 +1899,11 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             select count(*) as num_new_genres from tmp_new_genres;
         """
-        new_genres = db.execute(string)
-        num_new_genres = new_genres.loc[0, 'num_new_genres']
+        new_genres = self.db.execute(string)
+        num_new_genres = new_genres.loc[0, 'num_new_genres'] if new_genres is not None else 0
         print(f'{num_new_genres} new genres inserted')
 
-    def insertNewGenreStreams(db):
+    def insertNewGenreStreams(self):
 
         string = """
             delete from nielsen_genres.streams
@@ -1894,61 +1928,55 @@ class NielsenDailyUSPipeline(PipelineBase):
             ) s
             left join nielsen_genres.meta m on s.genre = m.genre
         """
-        db.execute(string)
+        self.db.execute(string)
 
-    def refreshGenreCorrelations(db):
+    def refreshGenreCorrelations(self):
         
         string = """
             refresh materialized view concurrently nielsen_genres.__correlations;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-    def refreshGenreStats(db):
+    def refreshGenreStats(self):
 
         string = """
             refresh materialized view concurrently nielsen_genres.__stats;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-    def refreshGenreArtists(db):
+    def refreshGenreArtists(self):
 
         string = """
             refresh materialized view concurrently nielsen_genres.__artists;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-    def refreshGenreSparklines(db):
+    def refreshGenreSparklines(self):
 
         string = """
             refresh materialized view concurrently nielsen_genres.__sparklines;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-    def updateGenres():
+    def updateGenres(self):
 
         """
             Update all information about genres that connects artist data
             with spotify genres.
         """
 
-        time = Time()
+        self.insertNewGenres()
+        self.insertNewGenreStreams()
+        self.refreshGenreStats()
+        self.refreshGenreCorrelations()
+        self.refreshGenreArtists()
+        self.refreshGenreSparklines()
 
-        insertNewGenres(db)
-        insertNewGenreStreams(db)
-        refreshGenreStats(db)
-        refreshGenreCorrelations(db)
-        refreshGenreArtists(db)
-        refreshGenreSparklines(db)
-
-        self.printFnComplete(time.getElapsed('Genres updated'))
-
-    def cacheSpotifyAlbums():
+    def cacheSpotifyAlbums(self):
 
         """
             Cache information about spotify albums relavent to our database.
         """
-
-        time = Time()
 
         # Converts a spotify album object to something we can digest
         def album2Data(album):
@@ -1987,30 +2015,22 @@ class NielsenDailyUSPipeline(PipelineBase):
             )
             and length(spotify_album_id) > 0
         """
-        df = db.execute(string)
+        df = self.db.execute(string)
 
-        if df.empty:
+        if df is None or df.empty:
             return
 
         # Init spotify client
         spotify = Spotify()
 
         # Preset (Loop through in chunks of 20)
-        count = 0
         data = []
-        album_ids = df['spotify_album_id'].values.tolist()
+        album_ids = df['spotify_album_id'].tolist()
         chunks = chunker(album_ids, 20)
-        for i, chunk in enumerate(chunks):
+        for chunk in chunks:
 
-            if random.random() < 0.1:
-                spotify.refresh()
-
-            try:
-                res = spotify.sp.albums(chunk)
-            except ReadTimeout:
-                res = spotify.sp.albums(chunk)
-
-            res = [album2Data(i) for i in res['albums']]
+            res = spotify.albums(chunk)
+            res = [album2Data(i) for i in res]
 
             data = [ *data, *res ]
             
@@ -2027,17 +2047,13 @@ class NielsenDailyUSPipeline(PipelineBase):
         df.loc[df['release_date'] == '0000-01-01', 'release_date'] = '2000-01-01'
 
         # Insert into db
-        db.big_insert(df, 'spotify_albums')
+        self.db.big_insert(df, 'spotify_albums')
 
-        self.printFnComplete(time.getElapsed('Cached spotify albums'))
-
-    def filterSignedFromSpotifyCopyrights():
+    def filterSignedFromSpotifyCopyrights(self):
 
         """
             Use the spotify copyrights to filter signed artists
         """
-
-        time = Time()
 
         def aaronMethodNielsenLabelsSignedToSongFilter(row, labels):
         
@@ -2086,7 +2102,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             where signed = false
                 and sp.spotify_copyrights is not null
         """
-        artists = db.execute(string)
+        artists = self.db.execute(string)
 
         # Get songs to check
         string = """
@@ -2107,11 +2123,11 @@ class NielsenDailyUSPipeline(PipelineBase):
             where signed = false
                 and sp.copyrights is not null
         """
-        songs = db.execute(string)
+        songs = self.db.execute(string)
 
         # Perform filter
-        artists = filterSigned(artists, db).drop(columns=['artist', 'spotify_copyrights', 'signed'])
-        songs = filterSigned(songs, db).drop(columns=['artist', 'title', 'spotify_copyrights', 'signed'])
+        artists = filterSigned(artists, self.db).drop(columns=['artist', 'spotify_copyrights', 'signed'])
+        songs = filterSigned(songs, self.db).drop(columns=['artist', 'title', 'spotify_copyrights', 'signed'])
 
         # Create temp tables
         string = """
@@ -2125,9 +2141,9 @@ class NielsenDailyUSPipeline(PipelineBase):
                 report_date date
             );
         """
-        db.execute(string)
-        db.big_insert(artists, 'tmp_artists_signed')
-        db.big_insert(songs, 'tmp_songs_signed')
+        self.db.execute(string)
+        self.db.big_insert(artists, 'tmp_artists_signed')
+        self.db.big_insert(songs, 'tmp_songs_signed')
 
         # Make updates
         string = """
@@ -2149,29 +2165,21 @@ class NielsenDailyUSPipeline(PipelineBase):
             drop table tmp_artists_signed;
             drop table tmp_songs_signed;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-        self.printFnComplete(time.getElapsed('Filtered signed artists'))
-
-    def refreshReportsRecent():
-
-        time = Time()
+    def refreshReportsRecent(self):
 
         string = """
             refresh materialized view concurrently nielsen_artist.__reports_recent;
             refresh materialized view concurrently nielsen_song.__reports_recent;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-        self.printFnComplete(time.getElapsed('Refreshed reports recent'))
-
-    def recordGenreCharts():
+    def recordGenreCharts(self):
 
         """
             Record where everyone sits in their genres.
         """
-
-        time = Time()
 
         string = """
             -- LTG
@@ -2278,36 +2286,24 @@ class NielsenDailyUSPipeline(PipelineBase):
                 and rd.rnk < 50;
             -- End TW New
         """
-        db.execute(string)
+        self.db.execute(string)
 
-        self.printFnComplete(time.getElapsed('Recorded genre charts'))
-
-    def refreshDailyReport():
-
-        time = Time()
+    def refreshDailyReport(self):
 
         string = """
             refresh materialized view concurrently nielsen_song.__daily_report;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-        self.printFnComplete(time.getElapsed('Daily report refreshed'))
-
-    def refreshSimpleViews():
-
-        time = Time()
+    def refreshSimpleViews(self):
 
         string = """
             refresh materialized view concurrently nielsen_artist.__artist;
             refresh materialized view concurrently nielsen_song.__song;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-        self.printFnComplete(time.getElapsed('Refreshed simple views'))
-
-    def updateSpotifyCharts():
-
-        time = Time()
+    def updateSpotifyCharts(self):
 
         def get_type(category):
         
@@ -2326,7 +2322,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             if t == 'track' or t == 'album':
                 title = track[t + 'Name']
                 artist = '/'.join([artist['name'] for artist in track['artists']]) if 'artists' in track else ''
-            elif t == 'artist':
+            else:
                 artist = track[t + 'Name']
                 title = ''
 
@@ -2367,7 +2363,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         def getFlagshipData(spotify, flagship_outline):
 
             flagship_data = []
-            for idx, flagship_item in enumerate(flagship_outline):
+            for flagship_item in flagship_outline:
 
                 # Get data from url in this package
                 url = flagship_item['url']
@@ -2376,9 +2372,9 @@ class NielsenDailyUSPipeline(PipelineBase):
                 if res is None:
                     continue
 
+                data = []
                 if 'entries' in res and len(res['entries']) > 0:
 
-                    data = []
                     for entry in res['entries']:
 
                         if not ('missingRequiredFields' in entry and entry['missingRequiredFields'] is True):
@@ -2397,7 +2393,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         def getCityData(spotify, city_outline):
 
             city_data = []
-            for idx, city_item in enumerate(city_outline):
+            for city_item in city_outline:
                 
                 # Get data from url in this package
                 url = city_item['url']
@@ -2406,9 +2402,9 @@ class NielsenDailyUSPipeline(PipelineBase):
                 if res is None:
                     continue
                 
+                data = []
                 if 'entries' in res and len(res['entries']) > 0:
                     
-                    data = []
                     for entry in res['entries']:
                         
                         if not ('missingRequiredFields' in entry and entry['missingRequiredFields'] is True):
@@ -2424,7 +2420,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         def getGenreData(spotify, genre_outline):
 
             genre_data = []
-            for idx, genre_item in enumerate(genre_outline):
+            for genre_item in genre_outline:
                 
                 url = genre_item['url']
                 res = spotify.get(url)
@@ -2432,9 +2428,9 @@ class NielsenDailyUSPipeline(PipelineBase):
                 if res is None:
                     continue
                 
+                data = []
                 if 'entries' in res and len(res['entries']) > 0:
                     
-                    data = []
                     for entry in res['entries']:
                         
                         if not ('missingRequiredFields' in entry and entry['missingRequiredFields'] is True):
@@ -2449,9 +2445,16 @@ class NielsenDailyUSPipeline(PipelineBase):
             return pd.DataFrame(genre_data)
             
         # Read in our outlines
-        flagship_outline = db.execute('select * from misc.spotify_flagship_outline').to_dict('records')
-        city_outline = db.execute('select * from misc.spotify_city_outline').to_dict('records')
-        genre_outline = db.execute('select * from misc.spotify_genre_outline').to_dict('records')
+        flagship_outline = self.db.execute('select * from misc.spotify_flagship_outline')
+        city_outline = self.db.execute('select * from misc.spotify_city_outline')
+        genre_outline = self.db.execute('select * from misc.spotify_genre_outline')
+
+        if flagship_outline is None or city_outline is None or genre_outline is None:
+            raise Exception('Error getting flagship, city or genre outlines')
+
+        flagship_outline = flagship_outline.to_dict('records')
+        city_outline = city_outline.to_dict('records')
+        genre_outline = genre_outline.to_dict('records')
 
         # Init spotify client
         spotify = Spotify()
@@ -2484,9 +2487,9 @@ class NielsenDailyUSPipeline(PipelineBase):
             create temp table tmp_spotify_track_ids (id text);
             create temp table tmp_spotify_artist_ids (id text);
         """
-        db.execute(string)
-        db.big_insert(pd.DataFrame(spotify_track_ids, columns=['id']), 'tmp_spotify_track_ids')
-        db.big_insert(pd.DataFrame(spotify_artist_ids, columns=['id']), 'tmp_spotify_artist_ids')
+        self.db.execute(string)
+        self.db.big_insert(pd.DataFrame(spotify_track_ids, columns=['id']), 'tmp_spotify_track_ids')
+        self.db.big_insert(pd.DataFrame(spotify_artist_ids, columns=['id']), 'tmp_spotify_artist_ids')
 
         # Use temporary tables to match on artist/song information
         string = """
@@ -2498,7 +2501,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             from nielsen_artist.__artist m
             join tmp_spotify_artist_ids x on x.id = m.spotify_artist_id
         """
-        artists = db.execute(string)
+        artists = self.db.execute(string)
 
         string = """
             select
@@ -2509,14 +2512,17 @@ class NielsenDailyUSPipeline(PipelineBase):
             from nielsen_song.__song m
             join tmp_spotify_track_ids x on x.id = m.spotify_track_id
         """
-        songs = db.execute(string)
+        songs = self.db.execute(string)
 
         # Cleanup
         string = """
             drop table tmp_spotify_track_ids;
             drop table tmp_spotify_artist_ids;
         """
-        db.execute(string)
+        self.db.execute(string)
+
+        if songs is None or artists is None:
+            raise Exception('Error getting artists/songs for spotify chart updates')
 
         # Combine the artists / songs
         spotify_df = pd.concat([ songs, artists ]).reset_index(drop=True)
@@ -2525,7 +2531,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         df = pd.merge(data, spotify_df, on='spotify_id', how='left')
 
         # Last we need to do a final check of signed/unsigned stuff
-        df = basicSignedCheck(df, db)
+        df = self.basicSignedCheck(df)
 
         # Clean types
         df['nielsen_id'] = df['nielsen_id'].astype('Int64')
@@ -2535,10 +2541,10 @@ class NielsenDailyUSPipeline(PipelineBase):
         string = """
             delete from dsp_charts.spotify
         """
-        db.execute(string)
+        self.db.execute(string)
 
         # Insert new data
-        db.big_insert(df, 'dsp_charts.spotify')
+        self.db.big_insert(df, 'dsp_charts.spotify')
 
         # Update the incrementor for number of charts things have been on
         string = """
@@ -2609,10 +2615,167 @@ class NielsenDailyUSPipeline(PipelineBase):
             drop table tmp_songs;
             drop table tmp_albums;
         """
-        db.execute(string)
+        self.db.execute(string)
 
-        self.printFnComplete(time.getElapsed('Spotify charts updated'))
+    def testDbInsert(self):
 
+        """
+            Tests to make sure that we are able to insert something into our database.
+        """
+
+        # Rollback our changes
+        # DO NOT TOUCH THIS LINE, WE CANNOT COMMIT CHANGES PRIOR TO THIS, BUT WE ARE GOING TO
+        # COMMIT CHANGES IN THE NEXT LINES.
+        self.db.rollback()
+
+        # Create the test table if it doesn't already exist. I created it, but just in case
+        # you want to delete it and retest...
+        string = """
+            create table if not exists pipeline_test (
+                test_value text,
+                timestamp timestamp default current_timestamp
+            );
+        """
+        self.db.execute(string)
+
+        # Get the number of rows in the pipeline_test table, which we will check against later
+        # to make sure that something actually got inserted
+        string = """
+            select *
+            from pipeline_test
+        """
+        df = self.db.execute(string)
+        if df is None:
+            raise Exception('Error getting pipeline_test table')
+        num_rows_start = len(df)
+
+        # Perform a test insert of this table. It comes with a timestamp so you should be able
+        # to see the latest test case in there inserted if all goes according to plan.
+        string = """
+            insert into pipeline_test (test_value)
+            values ('Pipeline test complete!')
+        """
+        self.db.execute(string)
+
+        # Commit the test changes to the db
+        self.db.commit()
+
+        # Check rows after to make sure that the row was correctly inserted
+        string = """
+            select *
+            from pipeline_test
+        """
+        df = self.db.execute(string)
+        if df is None:
+            raise Exception('Error getting pipeline_test table')
+        num_rows_end = len(df)
+
+        # If the number of rows isn't greater by 1 throw an error
+        if num_rows_start + 1 != num_rows_end:
+            raise Exception('Insert into pipeline_test did not get committed properly')
+    
     def build(self):
 
-        pass
+        self.add_function(self.downloadFiles, 'Download Files')
+        self.add_function(self.validateSession, 'Validate Session')
+
+        """
+            Stage 1:
+                - processArtists | Process artist file
+                - processSongs | Process song file
+                - updateRecentDate | Update the most recent date of data received.
+        """
+        self.add_function(self.processArtists, 'Process Artists')
+        self.add_function(self.processSongs, 'Process Songs')
+        self.add_function(self.updateRecentDate, 'Update Recent Date')
+
+        """
+            Stage 2:
+                - refreshStats | Compute our statistics (tw_streams, lw_streams, pct_chg, tracks_count[projects only])
+                    = Depends on processArtists, processSongs, updateRecentDate
+                    = For artists / songs / projects
+                    = Hold off on genres for now because we need the spotify information on new artists before we can fully connect genres.
+                - cacheSpotifySongs | Cache spotify song information
+                    = Depends on processSongs
+                    = Caches spotify information about songs
+        """
+        self.add_function(self.refreshStats, 'Refresh Stats')
+        self.add_function(self.cacheSpotifySongs, 'Cache Spotify Songs')
+
+        """
+            Stage 3:
+                - refreshArtistTracks | Refresh the map between artists and their songs
+                    = Depends on refreshStats
+                        : The rnk column comes from tw_streams in stats
+                - cacheSpotifyAlbums | Cache spotify info about albums in our db
+                    = Depends on cacheSpotifySongs
+                        : Uses the associated albums to each spotify song to cache
+                
+        """
+        self.add_function(self.refreshArtistTracks, 'Refresh Artist Tracks')
+        self.add_function(self.cacheSpotifyAlbums, 'Cache Spotify Albums')
+
+        """
+            Stage 4:
+                - cacheSpotifyArtists | Cache spotify artist info
+                    = Depends on refreshArtistTracks / cacheSpotifySongs
+                        : Small optimization by connecting artists to songs and their spotify artist ids
+        """
+        self.add_function(self.cacheSpotifyArtists, 'Cache Spotify Artists')
+
+
+        """
+            Stage 5:
+                - cacheChartmetricIds | Cache map between artist ids and chartmetric social ids
+                    = Depends on spotify artist id info
+                - updateGenres | Cache genre information that connects artist streaming -> spotify genres
+                    = Depends on spotify artist genres
+                - filterSignedFromSpotifyCopyrights | Use spotify copyrights to filter signed artists
+                    = Depends on cacheSpotifySongs, cacheSpotifyArtists
+        """
+        self.add_function(self.cacheChartmetricIds, 'Cahce Chartmetric Ids')
+        self.add_function(self.updateGenres, 'Update Genres')
+        self.add_function(self.filterSignedFromSpotifyCopyrights, 'Filter Signed from Spotify Copyrights')
+
+        """
+            Stage 6:
+                - refreshReportsRecent | Refresh the most recent report for songs and artists
+                    = Depends on filterSignedFromSpotifyCopyrights
+                - recordGenreCharts | Record where everyone sits in their genres ranks
+                    = Depends on updateGenres, refreshStats
+        """
+        self.add_function(self.refreshReportsRecent, 'Refresh Reports Recent')
+        self.add_function(self.recordGenreCharts, 'Record Genre Charts')
+
+        """
+            Stage 7:
+                - refreshDailyReport | Daily song report for aaron
+                    = Depends on refreshStats, cacheSpotifySongs, refreshReportsRecent
+        """
+        self.add_function(self.refreshDailyReport, 'Refresh Daily Report')
+
+        """
+            Stage 8:
+                - refreshSimpleViews | Refresh materialized aggregate views of artists/songs
+                    = Depends on refreshReportsRecent, spotify artist/song data, refreshStats
+        """
+        self.add_function(self.refreshSimpleViews, 'Refresh Simple Views')
+
+        """
+            Stage 9:
+                - updateSpotifyCharts | Updates spotify charts
+                    = Depends on refreshSimpleViews
+        """
+        self.add_function(self.updateSpotifyCharts, 'Update Spotify Charts')
+
+    def test_build(self):
+
+        # Always set the settings to test regardless of command line arguments
+        self.settings['is_testing'] = True
+
+        self.add_function(self.downloadFiles, 'Download Files')
+        self.add_function(self.validateSession, 'Validate Session')
+        self.add_function(self.processArtists, 'Process Artists')
+        self.add_function(self.processSongs, 'Process Songs')
+        self.add_function(self.testDbInsert, 'Test Db Insert')
+        self.add_function(self.deleteFiles, 'Delete Files')

@@ -5,6 +5,18 @@ class SchedulerBase(ABC):
 
     def __init__(self):
         self.pipelines = []
+        self.schedule = {
+            'Monday': [],
+            'Tuesday': [],
+            'Wednesday': [],
+            'Thursday': [],
+            'Friday': [],
+            'Saturday': [],
+            'Sunday': []
+        }
+
+    def set(self, day, func):
+        self.schedule[day].append(func)
 
     def add_pipeline(self, pipeline: PipelineBase):
         self.pipelines.append(pipeline)
@@ -13,7 +25,7 @@ class SchedulerBase(ABC):
         for p in self.pipelines: p.run()
 
     @abstractmethod
-    def create_schedule(self):
+    def build(self):
         pass
 
 class Scheduler(SchedulerBase):
