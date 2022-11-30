@@ -1,14 +1,15 @@
-from datetime import datetime, timedelta
-from simple_chalk import chalk
+from .PipelineBase import PipelineBase
 from .functions import make_archive
 from .Time import Time
 from .env import LOCAL_DOWNLOAD_FOLDER
 from .Db import Db
 from .Sftp import Sftp
+from pandas.errors import EmptyDataError
+from datetime import datetime, timedelta
+from simple_chalk import chalk
 import shutil
 import pandas as pd
 import os
-from pandas.errors import EmptyDataError
 
 
 # Vars
@@ -472,3 +473,20 @@ def global_pipeline(settings):
         db.commit()
 
     print(chalk.green(f'Complete! Total time: {total_time.getElapsed()}'))
+
+class NielsenDailyGlobalPipeline(PipelineBase):
+
+    def __init__(self, db_name):
+        PipelineBase.__init__(self, db_name)
+
+        # Init root directory
+        if os.path.exists(GLOBAL_ARCHIVE_FOLDER) == False:
+            os.mkdir(GLOBAL_ARCHIVE_FOLDER)
+
+        # Calculate the global date, which is just 3 days prior to the run date
+        self.global_date = self.settings['date'] - timedelta(3)
+
+        # Init today's directory
+        daily_dir = GLOBAL_ARCHIVE_DAILY_FOLDER_TEMPLATE.format(datetime.strftime(self.global_date, '%Y-%m-%d'))
+        if os.path.exists(daily_dir) == False:
+            os.mkdir(daily_dir)

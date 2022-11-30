@@ -16,3 +16,4 @@ from .lib.shell import main
 from .lib.Email import Email
 from .lib.Aws import Aws
 from .lib.NielsenDailyUSPipeline import NielsenDailyUSPipeline
+from .lib.NielsenDailyGlobalPipeline import NielsenDailyGlobalPipeline

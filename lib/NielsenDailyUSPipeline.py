@@ -1324,13 +1324,10 @@ class NielsenDailyUSPipeline(PipelineBase):
                 for spotify_track_ids in chunks:
                     
                     # Get spotify info from api
-                    try:
-                        tracks = spotify.sp.tracks(spotify_track_ids)
-                    except ReadTimeout:
-                        tracks = spotify.sp.tracks(spotify_track_ids)
+                    tracks = spotify.tracks(spotify_track_ids)
 
                     # Extract information we're interested in
-                    tracks = [extractSongInfo(i) for i in tracks['tracks'] if i is not None]
+                    tracks = [extractSongInfo(i) for i in tracks]
 
                     # Append to list
                     data = [ *data, *tracks ]
@@ -1375,20 +1372,13 @@ class NielsenDailyUSPipeline(PipelineBase):
             album_ids = df.loc[(~df['spotify_album_id'].isnull()) & (df['spotify_album_id'] != ''), 'spotify_album_id'].unique().tolist()
 
             # Loop through in chunks of 20
-            count = 0
             data = []
             chunks = chunker(album_ids, 20)
-            for i, chunk in enumerate(chunks):
+            for chunk in chunks:
 
-                if random.random() < 0.1:
-                    spotify.refresh()
+                res = spotify.albums(chunk)
 
-                try:
-                    res = spotify.sp.albums(chunk)
-                except ReadTimeout:
-                    res = spotify.sp.albums(chunk)
-
-                res = [album2Data(i) for i in res['albums']]
+                res = [album2Data(i) for i in res]
 
                 data = [ *data, *res ]
 
@@ -1413,24 +1403,14 @@ class NielsenDailyUSPipeline(PipelineBase):
             track_ids = df.loc[(~df['spotify_track_id'].isnull()) & (df['spotify_track_id'] != ''), 'spotify_track_id'].unique().tolist()
 
             # Loop through in chunks of 100
-            count = 0
             data = []
             max_chunk = 100
             chunks = chunker(track_ids, max_chunk)
-            for i, chunk in enumerate(chunks):
+            for chunk in chunks:
 
-                if random.random() < 0.1:
-                    spotify.refresh()
-
-                try:
-                    res = spotify.sp.audio_features(chunk)
-                except ReadTimeout:
-                    res = spotify.sp.audio_features(chunk)
+                res = spotify.audio_features(chunk)
 
                 data = [ *data, *res ]
-                
-            # Filter out any none values
-            data = [i for i in data if i is not None]
 
             if len(data) > 0:
                 
@@ -1511,12 +1491,8 @@ class NielsenDailyUSPipeline(PipelineBase):
             Bulk add all the artists by spotify_artist_id
         """
 
-        def transformArtistReponse(res):
-            
-            return [transformSpotifyArtistObject(i) for i in res['artists'] if i is not None]
-
         # Get all the spotify artist ids
-        artist_ids = df.loc[(~df['spotify_artist_id'].isnull()) & (df['spotify_artist_id'] != ''), 'spotify_artist_id'].unique()
+        artist_ids = df.loc[(~df['spotify_artist_id'].isnull()) & (df['spotify_artist_id'] != ''), 'spotify_artist_id'].unique().tolist()
 
         # Loop through in chunks of 50
         data = []
@@ -1524,15 +1500,9 @@ class NielsenDailyUSPipeline(PipelineBase):
         chunks = chunker(artist_ids, max_chunk)
         for chunk in chunks:
 
-            if random.random() < 0.1:
-                spotify.refresh()
+            res = spotify.artists(chunk)
 
-            try:
-                res = spotify.sp.artists(chunk)
-            except ReadTimeout:
-                res = spotify.sp.artists(chunk)
-
-            res = transformArtistReponse(res)
+            res = [transformSpotifyArtistObject(i) for i in res]
 
             data = [ *data, *res ]
 
@@ -1618,30 +1588,15 @@ class NielsenDailyUSPipeline(PipelineBase):
         # Attach the album id of the artists most popular track    
         def getPopularTrackId(row, spotify):
 
-            # Refresh the spotify token every so often
-            if random.random() < 0.1:
-                spotify.refresh()
-
             # We can't search if we don't have a spotify_artist_id for the artist
             if pd.isnull(row['spotify_artist_id']) or row['spotify_artist_id'] == '' or row['spotify_artist_id'] is None:
                 return pd.Series((None, None))
 
-            # Wrap and retry cuz spotipy is dumb
-            try:
-                popular_tracks = spotify.sp.artist_top_tracks(row['spotify_artist_id'])
-            except ReadTimeout:
-                popular_tracks = spotify.sp.artist_top_tracks(row['spotify_artist_id'])
+            popular_tracks = spotify.artist_top_tracks(row['spotify_artist_id'])
 
             # If we didn't get anything then we can just exit
-            if len(popular_tracks['tracks']) == 0:
-                pd.Series((None, None))
-
-            # Filter out any none objects just in case cuz this is dumb
-            popular_tracks = [i for i in popular_tracks['tracks'] if i is not None]
-
-            # Again exit if we found nothing
             if len(popular_tracks) == 0:
-                return pd.Series((None, None))
+                pd.Series((None, None))
 
             # Get the top tracks album id
             spotify_popular_track_id = popular_tracks[0]['id']

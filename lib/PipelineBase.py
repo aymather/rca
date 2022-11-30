@@ -3,6 +3,7 @@ from .Time import Time
 from abc import abstractmethod, ABC
 from .settings import get_settings
 from .Db import Db
+from .Aws import Aws
 from typing import Callable, List
 
 class PipelineBase(ABC):
@@ -25,6 +26,9 @@ class PipelineBase(ABC):
         # Each pipeline has a list of functions that can be run
         self.funcs: List[Callable] = []
         self.func_names: List[str] = []
+
+        # For interacting with s3
+        self.aws = Aws()
 
     def printFnComplete(self, msg: str = '') -> None:
         print(self.fnCompleteColor(msg))

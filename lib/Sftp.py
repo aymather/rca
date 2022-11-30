@@ -111,8 +111,6 @@ class Sftp:
         with self.connect() as sftp:
             return sftp.listdir(path)
 
-            sftp.close()
-
     def get(self, remote_fullfile, local_fullfile):
 
         """

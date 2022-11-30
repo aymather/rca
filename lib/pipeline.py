@@ -728,9 +728,7 @@ def appendToSignedArtistList(df):
     db.big_insert(new_signed, 'misc.signed_artists')
     print(f'Inserted {new_signed.shape[0]} new signed artists to tracker...')
 
-def prepareSongData(df):
-    
-    time = Time()
+def prepareSongData(df, db):
     
     # Basic cleanup and separation of datasets
     meta, total, premium, ad_supported = cleanSongs(df)
@@ -744,11 +742,11 @@ def prepareSongData(df):
     # Add a column that specifies when the report was generated
     meta['report_date'] = pd.to_datetime(dateCols[0])
 
-    # Mark who is signed and who isn't
-    meta = filterSignedSongs(meta, db)
+    # # Mark who is signed and who isn't
+    # meta = filterSignedSongs(meta, db)
 
-    # Add signed artists to running list
-    appendToSignedArtistList(meta, db)
+    # # Add signed artists to running list
+    # appendToSignedArtistList(meta, db)
     
     # Pivot all the streaming data from wide to long format
     total = total.melt(id_vars='unified_song_id', var_name='date', value_name='streams')
@@ -758,10 +756,6 @@ def prepareSongData(df):
     # Merge streaming info together
     streams = pd.merge(total, ad_supported, on=['unified_song_id', 'date'])
     streams = pd.merge(streams, premium, on=['unified_song_id', 'date'])
-    
-    # Print the elapsed time & results
-    print(f'Finished cleaning song data')
-    time.elapsed()
     
     return meta, streams
 

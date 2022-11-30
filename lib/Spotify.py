@@ -135,9 +135,56 @@ class Spotify:
         res = self.sp.albums(album_ids)
 
         if res is None:
-            raise Exception('Error getting albums by album ids: ' + ','.join(album_ids))
+            raise Exception('Error getting albums by spotify album ids: ' + ','.join(album_ids))
 
         res = res['albums']
+        res = [i for i in res if i is not None]
+        return res
+
+    @request_wrapper
+    def tracks(self, track_ids: List[str]):
+
+        res = self.sp.tracks(track_ids)
+
+        if res is None:
+            raise Exception('Error getting tracks by spotify track ids: ' + ','.join(track_ids))
+
+        res = res['tracks']
+        res = [i for i in res if i is not None]
+        return res
+
+    @request_wrapper
+    def artists(self, artist_ids: List[str]):
+
+        res = self.sp.artists(artist_ids)
+
+        if res is None:
+            raise Exception('Error getting artists by spotify artist ids: ' + ','.join(artist_ids))
+
+        res = res['artists']
+        res = [i for i in res if i is not None]
+        return res
+
+    @request_wrapper
+    def audio_features(self, track_ids: List[str]):
+
+        res = self.sp.audio_features(track_ids)
+
+        if res is None:
+            raise Exception('Error getting audio features with spotify track ids: ' + ','.join(track_ids))
+
+        res = [i for i in res if i is not None]
+        return res
+
+    @request_wrapper
+    def artist_top_tracks(self, artist_ids):
+
+        res = self.sp.artist_top_tracks(artist_ids)
+
+        if res is None:
+            raise Exception('Error getting artist top tracks with spotify artist ids: ' + ','.join(artist_ids))
+
+        res = res['tracks']
         res = [i for i in res if i is not None]
         return res
 
