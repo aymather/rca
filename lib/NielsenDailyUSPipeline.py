@@ -19,6 +19,7 @@ NIELSEN_US_DAILY_ARTIST_FILENAME = 'RCA_AR_Artist_ODA_{}.csv'
 NIELSEN_US_DAILY_SONG_FILENAME_OLD = 'RCA_AR_SONG_ODA_{}.csv'
 NIELSEN_US_DAILY_SONG_FILENAME = 'RCA_AR_SONG_ODA_{}_New.csv'
 EXPORTS_TEMPLATE = '{}_exports'
+US_S3_UPLOAD_FOLDER_TEMPLATE = 'nielsen_archive/us/{}'
 MAC_FOLDER = '__MACOSX'
 
 # Convert a string to a date object
@@ -2629,6 +2630,11 @@ class NielsenDailyUSPipeline(PipelineBase):
         if num_rows_start + 1 != num_rows_end:
             raise Exception('Insert into pipeline_test did not get committed properly')
     
+    def archiveNielsenFiles(self):
+
+        s3_fullfile = US_S3_UPLOAD_FOLDER_TEMPLATE.format(self.files['zip'])
+        self.aws.upload_s3(self.fullfiles['zip'], s3_fullfile)
+
     def build(self):
 
         self.add_function(self.downloadFiles, 'Download Files')
@@ -2722,6 +2728,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                     = Depends on refreshSimpleViews
         """
         self.add_function(self.updateSpotifyCharts, 'Update Spotify Charts')
+
+        self.add_function(self.archiveNielsenFiles, 'Archive Nielsen Files')
 
     def test_build(self):
 

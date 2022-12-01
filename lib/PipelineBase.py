@@ -43,7 +43,9 @@ class PipelineBase(ABC):
     def run(self):
 
         """
-            Run the pipeline which is built from the self.build function
+            The implementation of this class must build the pipeline using
+            the self.add_function method. Calling this method will run the
+            series of functions built from that.
         """
 
         # Build the pipeline depending on whether we're testing or not
@@ -61,9 +63,10 @@ class PipelineBase(ABC):
             self.printFnComplete(name + ': ' + fnTime.getElapsed())
 
         self.commit()
+        self.db.disconnect()
 
         # Print the finished time
-        self.printSuccess(f'Pipeline {self.__class__.__name__} success: {pipelineTime.getElapsed()}')
+        self.printSuccess(f'{self.__class__.__name__} success: {pipelineTime.getElapsed()}')
 
     def commit(self):
         

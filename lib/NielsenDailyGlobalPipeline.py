@@ -6,6 +6,7 @@ from .Sftp import Sftp
 from .PipelineBase import PipelineBase
 from pandas.errors import EmptyDataError
 import pandas as pd
+import random
 import os
 
 # Vars
@@ -13,7 +14,7 @@ NIELSEN_GLOBAL_FILES_LOCATION = '/' # Location on the remote global servers wher
 GLOBAL_ARCHIVE_FOLDER = './global_archive'
 GLOBAL_ARCHIVE_DAILY_FOLDER_TEMPLATE = os.path.join(GLOBAL_ARCHIVE_FOLDER, 'global_{}')
 GLOBAL_ARCHIVE_DAILY_ZIP_FOLDER_TEMPLATE = os.path.join(GLOBAL_ARCHIVE_FOLDER, 'global_{}')
-GLOBAL_S3_UPLOAD_TEMPLATE = './archive/global/{}'
+GLOBAL_S3_UPLOAD_FOLDER_TEMPLATE = 'nielsen_archive/global/{}'
 
 GLOBAL_COUNTRY_NAMES = {
     'eu_daily': [ 'Austria', 'Belgium', 'Croatia', 'Czech_Republic', 'Denmark', 'Finland', 'France', 'Germany', 'Iceland', 'Ireland', 'Italy', 'Luxembourg', 'Netherlands', 'Norway', 'Poland', 'Portugal', 'Spain', 'Sweden', 'Switzerland', 'United_Kingdom' ],
@@ -30,6 +31,9 @@ GLOBAL_SERVER_NAMES = [
     'lat_am_daily',
     'emerging_daily'
 ]
+
+SONGS_STR_INDICATOR = '_Daily_Top50k_Songs_'
+ARTISTS_STR_INDICATOR = '_Daily_Top20k_Artists_'
 
 class NielsenDailyGlobalPipeline(PipelineBase):
 
@@ -51,6 +55,54 @@ class NielsenDailyGlobalPipeline(PipelineBase):
 
         return pd.concat(server_files)
 
+    def getTestFiles(self):
+
+        """
+            Get 1 random artist and 1 random song file to do test processing on.
+            Select server randomly as well.
+        """
+        server_name = random.choice(GLOBAL_SERVER_NAMES)
+        sftp = Sftp(server_name)
+        filenames = sftp.list()
+
+
+        files = []
+        song_filename = [i for i in filenames if SONGS_STR_INDICATOR in i and '__NO_DATA' not in i][0]
+        artist_filename = [i for i in filenames if ARTISTS_STR_INDICATOR in i and '__NO_DATA' not in i][0]
+
+        # Deconstruct the filename for the different parts
+        tmp_song_filename = song_filename.replace('.tsv', '') # remove extension
+        country, date = tmp_song_filename.split(SONGS_STR_INDICATOR) # now in between the indicator you can get the country & date
+        date = datetime.strptime(date, '%Y%m%d') # convert the date string to a date object
+
+        files.append({
+            'filename': song_filename,
+            'date': date,
+            'country': country.lower(),
+            'server_name': server_name,
+            'type': 'songs'
+        })
+
+        # Deconstruct the filename for the different parts
+        tmp_artist_filename = artist_filename.replace('.tsv', '') # remove extension
+        country, date = tmp_artist_filename.split(ARTISTS_STR_INDICATOR) # now in between the indicator you can get the country & date
+        date = datetime.strptime(date, '%Y%m%d') # convert the date string to a date object
+
+        files.append({
+            'filename': artist_filename,
+            'date': date,
+            'country': country.lower(),
+            'server_name': server_name,
+            'type': 'artists'
+        })
+
+        files_df = pd.DataFrame(files)
+
+        if len(files_df) != 2:
+            raise Exception('Unable to find 2 valid test files')
+
+        return files_df
+
     def getNewFilesFromServer(self, server_name):
 
         """
@@ -67,16 +119,14 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         # Remove files with __NO_DATA in the filename
         # Construct into an object with relevant info for easy handling as well
         files = []
-        songs_str_indicator = '_Daily_Top50k_Songs_'
-        artists_str_indicator = '_Daily_Top20k_Artists_'
         for filename in filenames:
             
             # If true then we're looking at a song file
-            if songs_str_indicator in filename and '__NO_DATA' not in filename:
+            if SONGS_STR_INDICATOR in filename and '__NO_DATA' not in filename:
 
                 # Deconstruct the filename for the different parts
                 tmp_filename = filename.replace('.tsv', '') # remove extension
-                country, date = tmp_filename.split(songs_str_indicator) # now in between the indicator you can get the country & date
+                country, date = tmp_filename.split(SONGS_STR_INDICATOR) # now in between the indicator you can get the country & date
                 date = datetime.strptime(date, '%Y%m%d') # convert the date string to a date object
                     
                 files.append({
@@ -88,11 +138,11 @@ class NielsenDailyGlobalPipeline(PipelineBase):
                 })
 
             # If true then we're looking at an artist file
-            if artists_str_indicator in filename and '__NO_DATA' not in filename:
+            if ARTISTS_STR_INDICATOR in filename and '__NO_DATA' not in filename:
 
                 # Deconstruct the filename for the different parts
                 tmp_filename = filename.replace('.tsv', '') # remove extension
-                country, date = tmp_filename.split(artists_str_indicator) # now in between the indicator you can get the country & date
+                country, date = tmp_filename.split(ARTISTS_STR_INDICATOR) # now in between the indicator you can get the country & date
                 date = datetime.strptime(date, '%Y%m%d') # convert the date string to a date object
 
                 files.append({
@@ -485,7 +535,7 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         # Create the fullfiles
         remote_fullfile = os.path.join(NIELSEN_GLOBAL_FILES_LOCATION, file['filename'])
         local_fullfile = os.path.join(LOCAL_DOWNLOAD_FOLDER, file['filename'])
-        s3_fullfile = GLOBAL_S3_UPLOAD_TEMPLATE.format(file['filename'])
+        s3_fullfile = GLOBAL_S3_UPLOAD_FOLDER_TEMPLATE.format(file['filename'])
 
         # Download files from the server if they don't exist already
         if os.path.exists(local_fullfile) is False:
@@ -495,6 +545,10 @@ class NielsenDailyGlobalPipeline(PipelineBase):
 
             # Read, clean and update
             df = pd.read_csv(local_fullfile, delimiter='\t', encoding='UTF-16')
+
+            # Subset if we're testing
+            if self.settings['is_testing'] == True:
+                df = df.iloc[:100].reset_index(drop=True)
 
             return df, {
                 'remote_fullfile': remote_fullfile,
@@ -508,20 +562,41 @@ class NielsenDailyGlobalPipeline(PipelineBase):
 
     def finishFileProcess(self, file, fullfiles):
 
-        # Archive
-        self.aws.upload_s3(fullfiles['local_fullfile'], fullfiles['s3_fullfiles'])
+        # We don't wanna do any of this unless we actually processed the the file
+        if self.settings['is_testing'] == False:
 
-        # Mark that we've processed this file
-        string = """
-            insert into misc.nielsen_global_daily_files_completed (filename, date, country, server_name, type)
-            values (%(filename)s, %(date)s, %(country)s, %(server_name)s, %(type)s)
-        """
-        self.db.execute(string, file)
+            # Archive
+            self.aws.upload_s3(fullfiles['local_fullfile'], fullfiles['s3_fullfiles'])
 
-        # Normally a pipeline would commit at the end, but we're going to commit after each file process
-        self.commit()
+            # Mark that we've processed this file
+            string = """
+                insert into misc.nielsen_global_daily_files_completed (filename, date, country, server_name, type)
+                values (%(filename)s, %(date)s, %(country)s, %(server_name)s, %(type)s)
+            """
+            self.db.execute(string, file)
+
+            # Normally a pipeline would commit at the end, but we're going to commit after each file process
+            self.commit()
+
+        # Must do this after uploading to s3
+        os.remove(fullfiles['local_fullfile'])
+
+    def addProcessFuncFromFile(self, file):
+
+        processFunc = None
+        if file['type'] == 'artists':
+            processFunc = lambda: self.processArtists(file)
+        elif file['type'] == 'songs':
+            processFunc = lambda: self.processSongs(file)
+
+        if processFunc is None:
+            raise Exception('Not a valid process func')
+
+        self.add_function(processFunc, f"Global file: {file['filename']}")
 
     def build(self):
+
+        print('Building function structure...')
         
         # Get all the files from the server that are available to be processed
         files = self.getNewFiles()
@@ -529,9 +604,17 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         # Sort them by date & server name
         # date, because we need to process them in the correct order (oldest->newest)
         # server name, so that we don't have to change sftp connections every time we change files
-        files = files.sort_values(by=['server_name', 'date'], ascending=True).reset_index(drop=True)
+        files = files.sort_values(by=['server_name', 'date'], ascending=True).reset_index(drop=True).to_dict('records')
 
-        files.to_csv('./server_files.csv', index=False)
+        # Create a process function for each file separately
+        for file in files:
+            self.addProcessFuncFromFile(file)
 
     def test_build(self):
-        pass
+
+        print('Building function structure...')
+        
+        files = self.getTestFiles()
+        files = files.to_dict('records')
+        for file in files:
+            self.addProcessFuncFromFile(file)
