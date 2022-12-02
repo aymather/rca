@@ -16,13 +16,13 @@ def schedule(settings):
     if settings['day_of_week'] == 'Sunday':
 
         print('Running: global pipeline')
-        global_pipeline(settings)
+        # global_pipeline(settings)
 
     elif settings['day_of_week'] == 'Monday':
 
         print('Running: Main pipeline, global pipeline, mapping table, monday weekly')
         pipeline(settings)
-        global_pipeline(settings)
+        # global_pipeline(settings)
         mapping_table(settings)
         monday_weekly(settings)
 
@@ -30,28 +30,28 @@ def schedule(settings):
 
         print('Running: Main pipeline, global pipeline')
         pipeline(settings)
-        global_pipeline(settings)
+        # global_pipeline(settings)
 
     elif settings['day_of_week'] == 'Wednesday':
 
         print('Running: Main pipeline, global pipeline')
         pipeline(settings)
-        global_pipeline(settings)
+        # global_pipeline(settings)
 
     elif settings['day_of_week'] == 'Thursday':
 
         print('Running: Main pipeline, global pipeline')
         pipeline(settings)
-        global_pipeline(settings)
+        # global_pipeline(settings)
 
     elif settings['day_of_week'] == 'Friday':
 
         print('Running: Main pipeline, global pipeline')
         pipeline(settings)
-        global_pipeline(settings)
+        # global_pipeline(settings)
 
     elif settings['day_of_week'] == 'Saturday':
 
         print('Running: Main pipeline, global pipeline')
         pipeline(settings)
-        global_pipeline(settings)
+        # global_pipeline(settings)
