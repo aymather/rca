@@ -319,7 +319,7 @@ class WeeklyFunctionsPipeline(PipelineBase):
                 if data is None:
                     data = res
                 else:
-                    data = data.append(res)
+                    data = pd.concat([data, res])
                     
                 count += 1
 
@@ -364,7 +364,7 @@ class WeeklyFunctionsPipeline(PipelineBase):
                 if data is None:
                     data = res
                 else:
-                    data = data.append(res)
+                    data = pd.concat([data, res])
                     
                 count += 1
 
@@ -410,7 +410,7 @@ class WeeklyFunctionsPipeline(PipelineBase):
                 if data is None:
                     data = res
                 else:
-                    data = data.append(res)
+                    data = pd.concat([data, res])
                     
                 count += 1
 
@@ -455,7 +455,7 @@ class WeeklyFunctionsPipeline(PipelineBase):
                 if data is None:
                     data = res
                 else:
-                    data = data.append(res)
+                    data = pd.concat([data, res])
                     
                 count += 1
 
@@ -481,6 +481,7 @@ class WeeklyFunctionsPipeline(PipelineBase):
 
         # Connect to reporting db
         reporting_db = Db('reporting_db')
+        reporting_db.connect()
 
         # Get the available ids
         youtube_ids = get_ids(df, 'youtube_id')
@@ -492,6 +493,8 @@ class WeeklyFunctionsPipeline(PipelineBase):
         cache_tiktok(reporting_db, tiktok_ids)
         cache_spotify(reporting_db, spotify_ids)
         cache_instagram(reporting_db, instagram_ids)
+
+        reporting_db.disconnect()
 
     def cacheStreamingStats(self):
 
@@ -934,39 +937,6 @@ class WeeklyFunctionsPipeline(PipelineBase):
                 artist,
                 spotify_image
             from results;
-
-            with tc as (
-                select
-                    m.id,
-                    tc.track_count
-                from nielsen_artist.meta m
-                inner join (
-                        select unified_artist_id, count(*) as track_count
-                        from (
-                            select unified_artist_id, unified_song_id
-                            from nielsen_map.map
-                            group by unified_artist_id, unified_song_id
-                        ) q
-                        group by unified_artist_id
-                ) tc on m.unified_artist_id = tc.unified_artist_id
-            )
-
-            update nielsen_artist.meta m
-            set track_count = tc.track_count
-            from tc
-            where m.id = tc.id;
-
-            with tmp as (
-                select
-                    m.id as song_id,
-                    map.unified_collection_id
-                from nielsen_song.meta m
-                left join nielsen_map.map on m.unified_song_id = map.unified_song_id
-                group by m.id, map.unified_collection_id
-            )
-
-            insert into nielsen_song.track_collections (song_id, unified_collection_id)
-            select song_id, unified_collection_id from tmp;
         """
         self.db.execute(string)
 

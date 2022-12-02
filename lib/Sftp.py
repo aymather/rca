@@ -63,7 +63,7 @@ CONNECTIONS = {
 }
 
 CONNECTION_OPTIONS = pysftp.CnOpts(knownhosts=None)
-CONNECTION_OPTIONS.hostkeys = None
+CONNECTION_OPTIONS.hostkeys = None  # type: ignore
 
 class Sftp:
 

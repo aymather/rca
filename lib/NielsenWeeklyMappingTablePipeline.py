@@ -284,7 +284,7 @@ class NielsenWeeklyMappingTablePipeline(PipelineBase):
 
     def archiveFiles(self):
 
-        date = self.settings['date'].strftime('YYYY-MM-DD')
+        date = self.settings['date'].strftime('%Y-%m-%d')
         for idx, local_fullfile in enumerate(LOCAL_CLEANED_FILES):
 
             print(f'Archiving file {idx + 1}/{len(LOCAL_CLEANED_FILES)}')
@@ -397,6 +397,44 @@ class NielsenWeeklyMappingTablePipeline(PipelineBase):
                 release_date = excluded.release_date;
         """
 
+    def updateArtistTrackCount(self):
+
+        string = """
+            with tc as (
+                select
+                    m.id,
+                    tc.track_count
+                from nielsen_artist.meta m
+                inner join (
+                        select unified_artist_id, count(*) as track_count
+                        from (
+                            select unified_artist_id, unified_song_id
+                            from nielsen_map.map
+                            group by unified_artist_id, unified_song_id
+                        ) q
+                        group by unified_artist_id
+                ) tc on m.unified_artist_id = tc.unified_artist_id
+            )
+
+            update nielsen_artist.meta m
+            set track_count = tc.track_count
+            from tc
+            where m.id = tc.id;
+
+            with tmp as (
+                select
+                    m.id as song_id,
+                    map.unified_collection_id
+                from nielsen_song.meta m
+                left join nielsen_map.map on m.unified_song_id = map.unified_song_id
+                group by m.id, map.unified_collection_id
+            )
+
+            insert into nielsen_song.track_collections (song_id, unified_collection_id)
+            select song_id, unified_collection_id from tmp;
+        """
+        self.db.execute(string)
+
     def build(self):
         
         self.add_function(self.downloadFiles, 'Downloading Mapping Files')
@@ -407,6 +445,8 @@ class NielsenWeeklyMappingTablePipeline(PipelineBase):
         self.add_function(self.processMap, 'Process Map')
         self.add_function(self.processCollections, 'Process Collections')
         
+        self.add_function(self.updateArtistTrackCount, 'Update Artist Track Count')
+
         self.add_function(self.archiveFiles, 'Archiving Files')
 
         self.add_function(self.deleteFiles, 'Deleting Mapping Files')

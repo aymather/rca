@@ -286,66 +286,30 @@ class NielsenDailyGlobalPipeline(PipelineBase):
 
             # Streams updates
             string = f"""
-                create temp table streams as (
-                    select
-                        m.id as artist_id,
-                        ts.date,
-                        ts.streams,
-                        case
-                            when existing_streams.artist_id is null then false
-                            else true
-                        end as record_exists,
-                        existing_streams.{country_name} as existing_streams
-                    from tmp_streams ts
-                    left join nielsen_artist.meta m on ts.unified_artist_id = m.unified_artist_id
-                    left join nielsen_artist.streams existing_streams on m.id = existing_streams.artist_id and ts.date = existing_streams.date
-                );
-
-                create temp table updates as (
-                    select artist_id, date, streams
-                    from streams
-                    where record_exists is true
-                        and streams is distinct from existing_streams
-                );
-
-                create temp table inserts as (
-                    select artist_id, date, streams
-                    from streams
-                    where record_exists is false
-                );
-
-                -- Update existing records
-                update nielsen_artist.streams s
-                set {country_name} = updates.streams
-                from updates
-                where s.artist_id = updates.artist_id
-                    and s.date::date = updates.date::date;
-
-                -- Insert new records
                 insert into nielsen_artist.streams (artist_id, date, {country_name})
-                select artist_id, date, streams from inserts;
-
-                select count(*) as value, 'updates' as name from updates
-                union all
-                select count(*) as value, 'inserts' as name from inserts
+                select
+                    m.id as artist_id,
+                    ts.date,
+                    ts.streams
+                from tmp_streams ts
+                join nielsen_artist.meta m on ts.unified_artist_id = m.unified_artist_id
+                on conflict (artist_id, date) do update
+                set {country_name} = excluded.streams
+                returning *
             """
             params = { 'date': date }
-            results = self.db.execute(string, params)
+            inserted = self.db.execute(string, params)
 
-            if results is None:
-                raise Exception('Error updating artist streams')
-            num_inserts = results.loc[results['name'] == 'inserts', 'value'].iloc[0]
-            num_updates = results.loc[results['name'] == 'updates', 'value'].iloc[0]
-            print(f'{num_inserts} inserts | {num_updates} updates')
+            if inserted is None or inserted.empty:
+                print('Inserted: 0')
+            else:
+                print(f'Inserted: {len(inserted)}')
 
             # Cleanup
             string = """
                 drop table tmp_meta;
                 drop table tmp_streams;
                 drop table new_artists;
-                drop table streams;
-                drop table updates;
-                drop table inserts;
             """
             self.db.execute(string)
 
@@ -454,66 +418,30 @@ class NielsenDailyGlobalPipeline(PipelineBase):
 
             # Streams updates
             string = f"""
-                create temp table streams as (
-                    select
-                        m.id as song_id,
-                        ts.date,
-                        ts.streams,
-                        case
-                            when existing_streams.song_id is null then false
-                            else true
-                        end as record_exists,
-                        existing_streams.{country_name} as existing_streams
-                    from tmp_streams ts
-                    left join nielsen_song.meta m on ts.unified_song_id = m.unified_song_id
-                    left join nielsen_song.streams existing_streams on m.id = existing_streams.song_id and ts.date = existing_streams.date
-                );
-
-                create temp table updates as (
-                    select song_id, date, streams
-                    from streams
-                    where record_exists is true
-                        and streams is distinct from existing_streams
-                );
-
-                create temp table inserts as (
-                    select song_id, date, streams
-                    from streams
-                    where record_exists is false
-                );
-
-                -- Update existing records
-                update nielsen_song.streams s
-                set {country_name} = updates.streams
-                from updates
-                where s.song_id = updates.song_id
-                    and s.date::date = updates.date::date;
-
-                -- Insert new records
                 insert into nielsen_song.streams (song_id, date, {country_name})
-                select song_id, date, streams from inserts;
-
-                select count(*) as value, 'updates' as name from updates
-                union all
-                select count(*) as value, 'inserts' as name from inserts;
+                select
+                    m.id as song_id,
+                    ts.date,
+                    ts.streams
+                from tmp_streams ts
+                join nielsen_song.meta m on ts.unified_song_id = m.unified_song_id
+                on conflict (song_id, date) do update
+                set {country_name} = excluded.streams
+                returning *
             """
             params = { 'date': date }
-            results = self.db.execute(string, params)
+            inserted = self.db.execute(string, params)
 
-            if results is None:
-                raise Exception('Error updating song streams')
-            num_inserts = results.loc[results['name'] == 'inserts', 'value'].iloc[0]
-            num_updates = results.loc[results['name'] == 'updates', 'value'].iloc[0]
-            print(f'{num_inserts} inserts | {num_updates} updates')
+            if inserted is None or inserted.empty:
+                print('Inserted: 0')
+            else:
+                print(f'Inserted: {len(inserted)}')
 
             # Cleanup
             string = """
                 drop table tmp_meta;
                 drop table tmp_streams;
                 drop table new_songs;
-                drop table streams;
-                drop table updates;
-                drop table inserts;
             """
             self.db.execute(string)
 
@@ -566,7 +494,7 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         if self.settings['is_testing'] == False:
 
             # Archive
-            self.aws.upload_s3(fullfiles['local_fullfile'], fullfiles['s3_fullfiles'])
+            self.aws.upload_s3(fullfiles['local_fullfile'], fullfiles['s3_fullfile'])
 
             # Mark that we've processed this file
             string = """
@@ -592,7 +520,7 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         if processFunc is None:
             raise Exception('Not a valid process func')
 
-        self.add_function(processFunc, f"Global file: {file['filename']}")
+        self.add_function(processFunc, file['filename'])
 
     def build(self):
 
@@ -600,6 +528,7 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         
         # Get all the files from the server that are available to be processed
         files = self.getNewFiles()
+        print(f'Number of files to process: {len(files)}')
 
         # Sort them by date & server name
         # date, because we need to process them in the correct order (oldest->newest)

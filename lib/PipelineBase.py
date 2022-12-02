@@ -10,26 +10,30 @@ class PipelineBase(ABC):
 
     def __init__(self, db_name):
 
+        # This is the database we'll be updating, our postgres database
+        # This is a parameter because we might be running data into our dev db or prod db
+        # The self.settings['is_testing'] does NOT cause our pipelines to run on the dev db, the IMPLEMENTATION is what handles which db we use
         self.db_name = db_name
+        self.db = Db(db_name)
+        self.db.connect()
 
         # Chalk settings
         self.fnCompleteColor = chalk.cyan
         self.successColor = chalk.green
 
         # Basic pipeline settings
+        # is_testing | tells us which build to use when we call self.run() - you can set up a test_build in the implementation
+        # date | runtime date to use, this is typically just "today" but you can also use the --date argument to change which date you want to run
         self.settings = get_settings()
-
-        # Database
-        self.db = Db(db_name)
-        self.db.connect()
 
         # Each pipeline has a list of functions that can be run
         self.funcs: List[Callable] = []
         self.func_names: List[str] = []
 
-        # For interacting with s3
+        # For interacting with s3 mostly
         self.aws = Aws()
 
+    # Simple functions to print in colors our major events
     def printFnComplete(self, msg: str = '') -> None:
         print(self.fnCompleteColor(msg))
 
@@ -40,6 +44,7 @@ class PipelineBase(ABC):
         self.funcs.append(func)
         self.func_names.append(name)
 
+    # Entry point
     def run(self):
 
         """
@@ -48,11 +53,7 @@ class PipelineBase(ABC):
             series of functions built from that.
         """
 
-        # Build the pipeline depending on whether we're testing or not
-        if self.settings['is_testing'] == True:
-            self.test_build()
-        else:
-            self.build()
+        self.build() if self.settings['is_testing'] == False else self.test_build()
 
         pipelineTime = Time()
         for func, name in zip(self.funcs, self.func_names):
@@ -73,11 +74,8 @@ class PipelineBase(ABC):
         """
             Commit changes to the database if we aren't in testing mode.
         """
-        
-        if self.settings['is_testing'] == True:
-            self.db.rollback()
-        else:
-            self.db.commit()
+
+        self.db.commit() if self.settings['is_testing'] == False else self.db.rollback()
 
     @abstractmethod
     def build(self):
