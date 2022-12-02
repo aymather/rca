@@ -32,6 +32,7 @@ class PipelineBase(ABC):
 
         # For interacting with s3 mostly
         self.aws = Aws()
+        self.aws.connect_s3()
 
     # Simple functions to print in colors our major events
     def printFnComplete(self, msg: str = '') -> None:

@@ -231,12 +231,19 @@ class NielsenDailyGlobalPipeline(PipelineBase):
             meta_columns = [ 'unified_artist_id', 'artist' ]
             streams_columns = [ 'unified_artist_id', current_day, previous_day ]
 
-            meta = df[meta_columns].drop_duplicates(subset='unified_artist_id')
-            streams = df[streams_columns].melt(id_vars='unified_artist_id', var_name='date', value_name='streams')
+            # Sometimes nielsen duplicates artist ids so just make sure that isn't a problem
+            df = df.drop_duplicates(subset='unified_artist_id').reset_index(drop=True)
+
+            meta = df[meta_columns].reset_index(drop=True)
+            streams = df[streams_columns].melt(id_vars='unified_artist_id', var_name='date', value_name='streams').reset_index(drop=True)
+
+            # Make sure that there aren't any streams that have NaN values, and validate the int type
+            streams['streams'] = streams['streams'].fillna(0)
+            streams['streams'] = streams['streams'].astype('int')
 
             return meta, streams
 
-        def dbUpdates(meta, streams, date, country_name):
+        def dbUpdates(meta, streams, country_name):
 
             """
                 Perform database updates on a cleaned global daily artist file.
@@ -262,30 +269,12 @@ class NielsenDailyGlobalPipeline(PipelineBase):
             self.db.big_insert(streams, 'tmp_streams')
 
             # Insert metadata
-            string = """
-                create temp table new_artists as (
-                    select
-                        tm.unified_artist_id,
-                        tm.artist,
-                        true as is_global
-                    from tmp_meta tm
-                    left join nielsen_artist.meta m on tm.unified_artist_id = m.unified_artist_id
-                    where m.unified_artist_id is null
-                );
-
-                insert into nielsen_artist.meta (unified_artist_id, artist, is_global)
-                select unified_artist_id, artist, is_global from new_artists;
-
-                select count(*) from new_artists;
-            """
-            new_artists = self.db.execute(string)
-            if new_artists is None:
-                raise Exception('Error inserting new artists')
-            num_new_artists = new_artists.loc[0, 'count']
-            print(f'Inserted {num_new_artists} new artists')
-
-            # Streams updates
             string = f"""
+                insert into nielsen_artist.meta (unified_artist_id, artist, is_global)
+                select unified_artist_id, artist, true from tmp_meta
+                on conflict (unified_artist_id) do update
+                set artist = excluded.artist;
+
                 insert into nielsen_artist.streams (artist_id, date, {country_name})
                 select
                     m.id as artist_id,
@@ -294,29 +283,17 @@ class NielsenDailyGlobalPipeline(PipelineBase):
                 from tmp_streams ts
                 join nielsen_artist.meta m on ts.unified_artist_id = m.unified_artist_id
                 on conflict (artist_id, date) do update
-                set {country_name} = excluded.streams
-                returning *
-            """
-            params = { 'date': date }
-            inserted = self.db.execute(string, params)
+                set {country_name} = excluded.streams;
 
-            if inserted is None or inserted.empty:
-                print('Inserted: 0')
-            else:
-                print(f'Inserted: {len(inserted)}')
-
-            # Cleanup
-            string = """
                 drop table tmp_meta;
                 drop table tmp_streams;
-                drop table new_artists;
             """
             self.db.execute(string)
 
         df, fullfiles = self.initFileProcess(file)
 
         meta, streams = clean(df, file['date'])
-        dbUpdates(meta, streams, file['date'], file['country'])
+        dbUpdates(meta, streams, file['country'])
 
         self.finishFileProcess(file, fullfiles)
 
@@ -363,12 +340,19 @@ class NielsenDailyGlobalPipeline(PipelineBase):
             meta_columns = [ 'unified_song_id', 'title', 'artist', 'isrc' ]
             streams_columns = [ 'unified_song_id', current_day, previous_day ]
 
-            meta = df[meta_columns].drop_duplicates(subset=['unified_song_id'])
-            streams = df[streams_columns].melt(id_vars='unified_song_id', var_name='date', value_name='streams')
+            # Sometimes nielsen has duplicates on song id so remove those
+            df = df.drop_duplicates(subset='unified_song_id').reset_index(drop=True)
+
+            meta = df[meta_columns].reset_index(drop=True)
+            streams = df[streams_columns].melt(id_vars='unified_song_id', var_name='date', value_name='streams').reset_index(drop=True)
+
+            # Make sure that there aren't any streams that have NaN values, and validate the int type
+            streams['streams'] = streams['streams'].fillna(0)
+            streams['streams'] = streams['streams'].astype('int')
 
             return meta, streams
 
-        def dbUpdates(meta, streams, date, country_name):
+        def dbUpdates(meta, streams, country_name):
 
             # Create temporary tables
             string = """
@@ -392,32 +376,15 @@ class NielsenDailyGlobalPipeline(PipelineBase):
             self.db.big_insert(streams, 'tmp_streams')
 
             # Insert metadata & update isrcs
-            string = """
-                create temp table new_songs as (
-                    select
-                        tm.unified_song_id,
-                        tm.artist,
-                        tm.title,
-                        tm.isrc,
-                        true as is_global
-                    from tmp_meta tm
-                    left join nielsen_song.meta m on tm.unified_song_id = m.unified_song_id
-                    where m.unified_song_id is null
-                );
-
-                insert into nielsen_song.meta (unified_song_id, artist, title, isrc, is_global)
-                select unified_song_id, artist, title, isrc, is_global from new_songs;
-
-                select count(*) from new_songs;
-            """
-            new_songs = self.db.execute(string)
-            if new_songs is None:
-                raise Exception('Error inserting new songs')
-            num_new_songs = new_songs.loc[0, 'count']
-            print(f'Inserted {num_new_songs} new songs')
-
-            # Streams updates
             string = f"""
+                insert into nielsen_song.meta (unified_song_id, artist, title, isrc, is_global)
+                select unified_song_id, artist, title, isrc, true from tmp_meta
+                on conflict (unified_song_id) do update
+                set
+                    artist = excluded.artist,
+                    title = excluded.title,
+                    isrc = excluded.isrc;
+
                 insert into nielsen_song.streams (song_id, date, {country_name})
                 select
                     m.id as song_id,
@@ -426,29 +393,17 @@ class NielsenDailyGlobalPipeline(PipelineBase):
                 from tmp_streams ts
                 join nielsen_song.meta m on ts.unified_song_id = m.unified_song_id
                 on conflict (song_id, date) do update
-                set {country_name} = excluded.streams
-                returning *
-            """
-            params = { 'date': date }
-            inserted = self.db.execute(string, params)
+                set {country_name} = excluded.streams;
 
-            if inserted is None or inserted.empty:
-                print('Inserted: 0')
-            else:
-                print(f'Inserted: {len(inserted)}')
-
-            # Cleanup
-            string = """
                 drop table tmp_meta;
                 drop table tmp_streams;
-                drop table new_songs;
             """
             self.db.execute(string)
 
         df, fullfiles = self.initFileProcess(file)
 
         meta, streams = clean(df, file['date'])
-        dbUpdates(meta, streams, file['date'], file['country'])
+        dbUpdates(meta, streams, file['country'])
 
         self.finishFileProcess(file, fullfiles)
 

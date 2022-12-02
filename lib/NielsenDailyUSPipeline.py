@@ -512,6 +512,9 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         # Pivot all the streaming data from wide to long format
         streams = streams.melt(id_vars='unified_artist_id', var_name='date', value_name='streams')
+
+        # Make sure we don't have any null streaming values
+        streams['streams']  = streams['streams'].fillna.astype('int')
         
         return meta, streams
 
@@ -568,13 +571,12 @@ class NielsenDailyUSPipeline(PipelineBase):
         # REPORTS
         string = """
             -- Insert new artists into meta table
-            insert into nielsen_artist.meta (unified_artist_id, artist)
-            select
-                tm.unified_artist_id,
-                tm.artist
-            from tmp_meta tm
-            left join nielsen_artist.meta m on tm.unified_artist_id = m.unified_artist_id
-            where m.unified_artist_id is null;
+            insert into nielsen_artist.meta (artist, unified_artist_id)
+            select artist, unified_artist_id from tmp_meta
+            on conflict (unified_artist_id) do update
+            set
+                artist = excluded.artist,
+                is_global = false;
 
             -- Insert reports
             insert into nielsen_artist.reports (
@@ -931,6 +933,11 @@ class NielsenDailyUSPipeline(PipelineBase):
         # Merge streaming info together
         streams = pd.merge(total, ad_supported, on=['unified_song_id', 'date'])
         streams = pd.merge(streams, premium, on=['unified_song_id', 'date'])
+
+        # Make sure we don't have any null streaming values
+        streams['streams']  = streams['streams'].fillna.astype('int')
+        streams['premium']  = streams['premium'].fillna.astype('int')
+        streams['ad_supported']  = streams['ad_supported'].fillna.astype('int')
         
         return meta, streams
 
@@ -964,18 +971,17 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         string = """
             -- META
-            insert into nielsen_song.meta (unified_song_id, artist, title, label, core_genre, release_date, isrc)
-            select
-                tm.unified_song_id,
-                tm.artist,
-                tm.title,
-                tm.label,
-                tm.core_genre,
-                tm.release_date,
-                tm.isrc
-            from tmp_meta tm
-            left join nielsen_song.meta m on tm.unified_song_id = m.unified_song_id
-            where m.unified_song_id is null;
+            insert into nielsen_song.meta (artist, title, unified_song_id, label, core_genre, release_date, isrc, is_global)
+            select artist, title, unified_song_id, label, core_genre, release_date, isrc from tmp_meta
+            on conflict (unified_song_id) do update
+            set
+                artist = excluded.artist,
+                title = excluded.title,
+                label = excluded.label,
+                core_genre = excluded.core_genre,
+                release_date = excluded.release_date,
+                isrc = excluded.isrc,
+                is_global = false;
 
             -- REPORTS
             insert into nielsen_song.reports (
@@ -995,20 +1001,6 @@ class NielsenDailyUSPipeline(PipelineBase):
                 tm.report_date
             from tmp_meta tm
             left join nielsen_song.meta m on tm.unified_song_id = m.unified_song_id;
-
-            -- ISRCs
-            update nielsen_song.meta m
-            set isrc = isrc_updates.new_isrc
-            from (
-                select
-                    tm.unified_song_id,
-                    tm.isrc as new_isrc
-                from tmp_meta tm
-                join nielsen_song.meta m
-                    on tm.unified_song_id = m.unified_song_id
-                    and tm.isrc != m.isrc
-            ) isrc_updates
-            where m.unified_song_id = isrc_updates.unified_song_id;
         """
         self.db.execute(string)
 
