@@ -1,3 +1,4 @@
+from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, TMP_FOLDER, REPORTS_FOLDER, MAPPING_TABLE_FOLDER
 from simple_chalk import chalk
 from .Time import Time
 from abc import abstractmethod, ABC
@@ -5,10 +6,27 @@ from .settings import get_settings
 from .Db import Db
 from .Aws import Aws
 from typing import Callable, List
+import os
 
 class PipelineBase(ABC):
 
     def __init__(self, db_name):
+
+        # Make sure that our local working directories exist
+        if not os.path.exists(LOCAL_ARCHIVE_FOLDER):
+            os.makedirs(LOCAL_ARCHIVE_FOLDER)
+
+        if not os.path.exists(LOCAL_DOWNLOAD_FOLDER):
+            os.makedirs(LOCAL_DOWNLOAD_FOLDER)
+
+        if not os.path.exists(TMP_FOLDER):
+            os.makedirs(TMP_FOLDER)
+
+        if not os.path.exists(REPORTS_FOLDER):
+            os.makedirs(REPORTS_FOLDER)
+
+        if not os.path.exists(MAPPING_TABLE_FOLDER):
+            os.makedirs(MAPPING_TABLE_FOLDER)
 
         # This is the database we'll be updating, our postgres database
         # This is a parameter because we might be running data into our dev db or prod db
