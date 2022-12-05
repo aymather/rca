@@ -1589,7 +1589,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             # If we didn't get anything then we can just exit
             if len(popular_tracks) == 0:
-                pd.Series((None, None))
+                return pd.Series((None, None))
 
             # Get the top tracks album id
             spotify_popular_track_id = popular_tracks[0]['id']
