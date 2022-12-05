@@ -514,7 +514,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         streams = streams.melt(id_vars='unified_artist_id', var_name='date', value_name='streams')
 
         # Make sure we don't have any null streaming values
-        streams['streams']  = streams['streams'].fillna.astype('int')
+        streams['streams']  = streams['streams'].fillna(0).astype('int')
         
         return meta, streams
 
@@ -935,9 +935,9 @@ class NielsenDailyUSPipeline(PipelineBase):
         streams = pd.merge(streams, premium, on=['unified_song_id', 'date'])
 
         # Make sure we don't have any null streaming values
-        streams['streams']  = streams['streams'].fillna.astype('int')
-        streams['premium']  = streams['premium'].fillna.astype('int')
-        streams['ad_supported']  = streams['ad_supported'].fillna.astype('int')
+        streams['streams']  = streams['streams'].fillna(0).astype('int')
+        streams['premium']  = streams['premium'].fillna(0).astype('int')
+        streams['ad_supported']  = streams['ad_supported'].fillna(0).astype('int')
         
         return meta, streams
 
@@ -971,7 +971,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         string = """
             -- META
-            insert into nielsen_song.meta (artist, title, unified_song_id, label, core_genre, release_date, isrc, is_global)
+            insert into nielsen_song.meta (artist, title, unified_song_id, label, core_genre, release_date, isrc)
             select artist, title, unified_song_id, label, core_genre, release_date, isrc from tmp_meta
             on conflict (unified_song_id) do update
             set
