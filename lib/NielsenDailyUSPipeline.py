@@ -22,8 +22,8 @@ EXPORTS_TEMPLATE = '{}_exports'
 US_S3_UPLOAD_FOLDER_TEMPLATE = 'nielsen_archive/us/{}'
 MAC_FOLDER = '__MACOSX'
 
-# Convert a string to a date object
 def str2Date(s):
+    """Convert a string to a date object"""
     try:
         return datetime.strptime(s, '%m/%d/%Y')
     except ValueError:
@@ -33,7 +33,7 @@ def str2Date(s):
             return False
 
 def getDateCols(cols):
-    
+    """Get date columns from nielsen file columns"""
     idx = []
     for col in cols:
         d = str2Date(col)
@@ -41,8 +41,8 @@ def getDateCols(cols):
             idx.append(col)
     return idx
 
-# Convert columns into correct date indicies
 def getDateIndicies(cols):
+    """Convert columns into correct date indicies"""
     idx = []
     for col in cols:
         d = str2Date(col)
@@ -50,12 +50,13 @@ def getDateIndicies(cols):
             idx.append(col)
     return idx
 
-# Convert to property datetime format for merging later
 def tDate(d):
+    """Convert to property datetime format for merging later"""
     m, d, y = d.split('/')
     return f'{y}-{m}-{d}'
 
 def transformSpotifyArtistObject(artist):
+    """Parse artist response object from spotify"""
 
     def get_image(arr):
 
