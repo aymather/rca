@@ -241,6 +241,9 @@ class NielsenDailyGlobalPipeline(PipelineBase):
             streams['streams'] = streams['streams'].fillna(0)
             streams['streams'] = streams['streams'].astype('int')
 
+            # For insert safety, rename the streams column to the actual country-labeled streams column
+            streams = streams.rename(columns={ 'streams': file['country'] })
+
             return meta, streams
 
         def dbUpdates(meta, streams, country_name):
@@ -250,7 +253,7 @@ class NielsenDailyGlobalPipeline(PipelineBase):
             """
 
             # Create temporary tables
-            string = """
+            string = f"""
                 create temp table tmp_meta (
                     unified_artist_id text,
                     artist text
@@ -259,7 +262,7 @@ class NielsenDailyGlobalPipeline(PipelineBase):
                 create temp table tmp_streams (
                     unified_artist_id text,
                     date date,
-                    streams int
+                    {country_name} int
                 );
             """
             self.db.execute(string)
@@ -279,11 +282,11 @@ class NielsenDailyGlobalPipeline(PipelineBase):
                 select
                     m.id as artist_id,
                     ts.date,
-                    ts.streams
+                    ts.{country_name}
                 from tmp_streams ts
                 join nielsen_artist.meta m on ts.unified_artist_id = m.unified_artist_id
                 on conflict (artist_id, date) do update
-                set {country_name} = excluded.streams;
+                set {country_name} = excluded.{country_name};
 
                 drop table tmp_meta;
                 drop table tmp_streams;
@@ -350,12 +353,15 @@ class NielsenDailyGlobalPipeline(PipelineBase):
             streams['streams'] = streams['streams'].fillna(0)
             streams['streams'] = streams['streams'].astype('int')
 
+            # For insert safety, rename the streams column to the actual country-labeled streams column
+            streams = streams.rename(columns={ 'streams': file['country'] })
+
             return meta, streams
 
         def dbUpdates(meta, streams, country_name):
 
             # Create temporary tables
-            string = """
+            string = f"""
                 create temp table tmp_meta (
                     unified_song_id text,
                     title text,
@@ -366,7 +372,7 @@ class NielsenDailyGlobalPipeline(PipelineBase):
                 create temp table tmp_streams (
                     unified_song_id text,
                     date date,
-                    streams int
+                    {country_name} int
                 );
             """
             self.db.execute(string)
@@ -389,11 +395,11 @@ class NielsenDailyGlobalPipeline(PipelineBase):
                 select
                     m.id as song_id,
                     ts.date,
-                    ts.streams
+                    ts.{country_name}
                 from tmp_streams ts
                 join nielsen_song.meta m on ts.unified_song_id = m.unified_song_id
                 on conflict (song_id, date) do update
-                set {country_name} = excluded.streams;
+                set {country_name} = excluded.{country_name};
 
                 drop table tmp_meta;
                 drop table tmp_streams;
@@ -449,7 +455,7 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         if self.settings['is_testing'] == False:
 
             # Archive
-            self.aws.upload_s3(fullfiles['local_fullfile'], fullfiles['s3_fullfile'])
+            # self.aws.upload_s3(fullfiles['local_fullfile'], fullfiles['s3_fullfile'])
 
             # Mark that we've processed this file
             string = """
