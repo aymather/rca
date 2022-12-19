@@ -1,4 +1,4 @@
-from .env import TMP_FOLDER, RCA_DB_PROD, REPORTING_DB
+from .env import TMP_FOLDER, RCA_DB_PROD, RCA_DB_DEV, REPORTING_DB
 from datetime import datetime
 from psycopg2 import sql
 from psycopg2.extensions import register_adapter, AsIs
@@ -20,9 +20,11 @@ register_adapter(np.float64, addapt_numpy_float64)
 register_adapter(np.int64, addapt_numpy_int64)
 
 db_connections = {
-    'rca_db': RCA_DB_PROD,
+    'rca_db_prod': RCA_DB_PROD,
+    'rca_db_dev': RCA_DB_DEV,
     'reporting_db': REPORTING_DB
 }
+
 
 class Db:
 
@@ -51,6 +53,7 @@ class Db:
             print(f'Successful connection to: {self.db_name}')
 
         except Exception as e:
+            print(str(e))
             raise Exception(f'Error testing db: {self.db_name}')
 
     def reset(self):
@@ -61,13 +64,25 @@ class Db:
         self.connect()
 
     def rollback(self):
+
+        if self.conn is None:
+            raise Exception(f'Connection to {self.db_name} not active.')
+
         self.conn.rollback()
 
     def execute(self, string, params = {}):
+
+        if self.cur is None:
+            raise Exception(f'Cursor to {self.db_name} not active.')
+
         self.cur.execute(string, params)
         return self.df()
 
     def commit(self):
+
+        if self.conn is None:
+            raise Exception(f'Connection to {self.db_name} not active.')
+
         self.conn.commit()
 
     def connect(self):
@@ -91,6 +106,9 @@ class Db:
             Get an array of all the current column names in the cursor.
         """
 
+        if self.cur is None:
+            raise Exception(f'Cursor to {self.db_name} not active.')
+
         if self.cur.description is None:
             return None
 
@@ -102,6 +120,9 @@ class Db:
             Take what's in the cursor and return it as a dataframe
             with the existing columns.
         """
+
+        if self.cur is None:
+            raise Exception(f'Cursor to {self.db_name} not active.')
         
         # Extract Columns
         cols = self.cols()
@@ -141,6 +162,9 @@ class Db:
             to build your query string yourself so it's a bit more
             flexible, but requires a bit more work prior.
         """
+
+        if self.cur is None:
+            raise Exception(f'Cursor to {self.db_name} not active.')
 
         # Build the temporary filename
         csv_filename = f'tmp_df_{datetime.now()}.csv'
