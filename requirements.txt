@@ -3,7 +3,7 @@ pandas
 numpy
 cython
 simple_chalk
-fuzzyset
+fuzzyset2
 pysftp
 spotipy
 python-dotenv
