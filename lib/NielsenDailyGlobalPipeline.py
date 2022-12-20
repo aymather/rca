@@ -455,7 +455,7 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         if self.settings['is_testing'] == False:
 
             # Archive
-            # self.aws.upload_s3(fullfiles['local_fullfile'], fullfiles['s3_fullfile'])
+            self.aws.upload_s3(fullfiles['local_fullfile'], fullfiles['s3_fullfile'])
 
             # Mark that we've processed this file
             string = """
