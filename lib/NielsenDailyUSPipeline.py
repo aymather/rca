@@ -6,7 +6,6 @@ from .Spotify import Spotify
 from zipfile import ZipFile
 from .Fuzz import Fuzz
 from .Db import Db
-from requests.exceptions import ReadTimeout
 from datetime import datetime, timedelta
 from uuid import uuid4
 import pandas as pd
