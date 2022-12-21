@@ -2625,7 +2625,7 @@ class NielsenDailyUSPipeline(PipelineBase):
     def archiveNielsenFiles(self):
 
         s3_fullfile = US_S3_UPLOAD_FOLDER_TEMPLATE.format(self.files['zip'])
-        self.aws.upload_s3(self.fullfiles['zip'], s3_fullfile)
+        self.aws.upload_s3(self.fullfiles['zip_local_archive'], s3_fullfile)
 
     def build(self):
 
