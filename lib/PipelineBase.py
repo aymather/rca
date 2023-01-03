@@ -75,9 +75,10 @@ class PipelineBase(ABC):
         self.build() if self.settings['is_testing'] == False else self.test_build()
 
         pipelineTime = Time()
-        for func, name in zip(self.funcs, self.func_names):
+        number_of_functions = len(self.funcs)
+        for idx, (func, name) in enumerate(zip(self.funcs, self.func_names)):
 
-            print(f'Running function: {name}')
+            print(f'{idx}/{number_of_functions - 1} | Running function: {name}')
             fnTime = Time()
             func()
             self.printFnComplete(name + ': ' + fnTime.getElapsed())
