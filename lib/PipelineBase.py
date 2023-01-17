@@ -5,7 +5,7 @@ from abc import abstractmethod, ABC
 from .settings import get_settings
 from .Db import Db
 from .Aws import Aws
-from typing import Callable, List
+from typing import Callable
 import os
 
 class PipelineBase(ABC):
