@@ -45,8 +45,7 @@ class PipelineBase(ABC):
         self.settings = get_settings()
 
         # Each pipeline has a list of functions that can be run
-        self.funcs: List[Callable] = []
-        self.func_names: List[str] = []
+        self.functions = []
 
         # For interacting with s3 mostly
         self.aws = Aws()
@@ -59,9 +58,23 @@ class PipelineBase(ABC):
     def printSuccess(self, msg: str = '') -> None:
         print(self.successColor(msg))
 
-    def add_function(self, func: Callable, name: str) -> None:
-        self.funcs.append(func)
-        self.func_names.append(name)
+    def add_function(self, func: Callable, name: str, error_on_failure: bool = True) -> None:
+
+        """
+            Function object outline:
+
+            {
+                "func": <Callable function to run>,
+                "name": <Name of function>,
+                "error_on_failure": <Boolean indicating whether the whole program should exit should this function error out>
+            }
+        """
+
+        self.functions.append({
+            'func': func,
+            'name': name,
+            'error_on_failure': error_on_failure
+        })
 
     # Entry point
     def run(self):
@@ -75,12 +88,26 @@ class PipelineBase(ABC):
         self.build() if self.settings['is_testing'] == False else self.test_build()
 
         pipelineTime = Time()
-        number_of_functions = len(self.funcs)
-        for idx, (func, name) in enumerate(zip(self.funcs, self.func_names)):
+        number_of_functions = len(self.functions)
+        for idx, function in enumerate(self.functions):
+
+            name = function['name']
+            func = function['func']
+            error_on_failure = function['error_on_failure']
 
             print(f'{idx}/{number_of_functions - 1} | Running function: {name}')
             fnTime = Time()
-            func()
+            
+            try:
+
+                func()
+
+            except Exception as e:
+
+                print(str(e))
+                if error_on_failure:
+                    raise e
+
             self.printFnComplete(name + ': ' + fnTime.getElapsed())
 
         self.commit()
