@@ -1,5 +1,6 @@
 from .settings import get_settings
 from abc import ABC, abstractmethod
+from .PipelineBase import PipelineBase
 
 class SchedulerBase(ABC):
 
@@ -16,17 +17,23 @@ class SchedulerBase(ABC):
             'Sunday': []
         }
 
-    def set(self, day, func):
-        self.schedule[day].append(func)
+    def set(self, day: str, pipeline: PipelineBase, error_on_failure: bool = False):
 
-    def add_schedule(self, day_of_week, pipelines):
-        self.schedule[day_of_week] = pipelines
+        self.schedule[day].append({
+            'Pipeline': pipeline,
+            'error_on_failure': error_on_failure
+        })
 
     def run(self):
         day_of_week = self.settings['date'].strftime('%A')
-        for Pipeline in self.schedule[day_of_week]:
+        for pipeline in self.schedule[day_of_week]:
             
+            Pipeline = pipeline['Pipeline']
+            error_on_failure = pipeline['error_on_failure']
+
             pipe = Pipeline(self.db_name)
+            
+            print(f'Running pipeline: ' + pipe.__class__.__name__)
             
             try:
 
@@ -35,6 +42,9 @@ class SchedulerBase(ABC):
             except Exception as e:
                 print('Exception on pipeline: ' + pipe.__class__.__name__)
                 print(str(e))
+
+                if error_on_failure:
+                    raise e
 
     @abstractmethod
     def build(self):

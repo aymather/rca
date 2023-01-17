@@ -10,19 +10,32 @@ class RCAResearchTeamScheduler(SchedulerBase):
         SchedulerBase.__init__(self, db_name)
 
     def build(self):
-        
-        sunday = [NielsenDailyGlobalPipeline]
-        monday = [NielsenDailyUSPipeline, NielsenDailyGlobalPipeline, NielsenWeeklyMappingTablePipeline, WeeklyFunctionsPipeline]
-        tuesday = [NielsenDailyUSPipeline, NielsenDailyGlobalPipeline]
-        wednesday = [NielsenDailyUSPipeline, NielsenDailyGlobalPipeline]
-        thursday = [NielsenDailyUSPipeline, NielsenDailyGlobalPipeline]
-        friday = [NielsenDailyUSPipeline, NielsenDailyGlobalPipeline]
-        saturday = [NielsenDailyUSPipeline, NielsenDailyGlobalPipeline]
 
-        self.add_schedule('Sunday', sunday)
-        self.add_schedule('Monday', monday)
-        self.add_schedule('Tuesday', tuesday)
-        self.add_schedule('Wednesday', wednesday)
-        self.add_schedule('Thursday', thursday)
-        self.add_schedule('Friday', friday)
-        self.add_schedule('Saturday', saturday)
+        # Sunday
+        self.set('Sunday', NielsenDailyGlobalPipeline)
+
+        # Monday
+        self.set('Monday', NielsenDailyUSPipeline)
+        self.set('Monday', NielsenDailyGlobalPipeline)
+        self.set('Monday', NielsenWeeklyMappingTablePipeline)
+        self.set('Monday', WeeklyFunctionsPipeline)
+
+        # Tuesday
+        self.set('Tuesday', NielsenDailyUSPipeline)
+        self.set('Tuesday', NielsenDailyUSPipeline)
+
+        # Wednesday
+        self.set('Wednesday', NielsenDailyUSPipeline)
+        self.set('Wednesday', NielsenDailyUSPipeline)
+
+        # Thursday
+        self.set('Thursday', NielsenDailyUSPipeline)
+        self.set('Thursday', NielsenDailyUSPipeline)
+
+        # Friday
+        self.set('Friday', NielsenDailyUSPipeline)
+        self.set('Friday', NielsenDailyUSPipeline)
+
+        # Saturday
+        self.set('Saturday', NielsenDailyUSPipeline)
+        self.set('Saturday', NielsenDailyUSPipeline)
