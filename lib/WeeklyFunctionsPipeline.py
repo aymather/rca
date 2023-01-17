@@ -943,8 +943,6 @@ class WeeklyFunctionsPipeline(PipelineBase):
     def build(self):
         
         self.add_function(self.cacheChartmetricIds, 'Recache Chartmetric Ids')
-        self.add_function(self.cacheArtistDiscoveryStats, 'Cache Artist Discovery Stats')
-        self.add_function(self.cacheStreamingStats, 'Cache Streaming Stats')
         self.add_function(self.cacheProjectReports, 'Cache Project Reports')
 
     def test_build(self):
