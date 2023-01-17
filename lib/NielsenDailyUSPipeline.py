@@ -2653,7 +2653,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     = Caches spotify information about songs
         """
         self.add_function(self.refreshStats, 'Refresh Stats')
-        self.add_function(self.cacheSpotifySongs, 'Cache Spotify Songs')
+        self.add_function(self.cacheSpotifySongs, 'Cache Spotify Songs', error_on_failure=False)
 
         """
             Stage 3:
@@ -2666,7 +2666,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 
         """
         self.add_function(self.refreshArtistTracks, 'Refresh Artist Tracks')
-        self.add_function(self.cacheSpotifyAlbums, 'Cache Spotify Albums')
+        self.add_function(self.cacheSpotifyAlbums, 'Cache Spotify Albums', error_on_failure=False)
 
         """
             Stage 4:
@@ -2674,7 +2674,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     = Depends on refreshArtistTracks / cacheSpotifySongs
                         : Small optimization by connecting artists to songs and their spotify artist ids
         """
-        self.add_function(self.cacheSpotifyArtists, 'Cache Spotify Artists')
+        self.add_function(self.cacheSpotifyArtists, 'Cache Spotify Artists', error_on_failure=False)
 
 
         """
@@ -2686,7 +2686,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 - filterSignedFromSpotifyCopyrights | Use spotify copyrights to filter signed artists
                     = Depends on cacheSpotifySongs, cacheSpotifyArtists
         """
-        self.add_function(self.cacheChartmetricIds, 'Cahce Chartmetric Ids')
+        self.add_function(self.cacheChartmetricIds, 'Cahce Chartmetric Ids', error_on_failure=False)
         self.add_function(self.updateGenres, 'Update Genres')
         self.add_function(self.filterSignedFromSpotifyCopyrights, 'Filter Signed from Spotify Copyrights')
 
@@ -2719,7 +2719,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 - updateSpotifyCharts | Updates spotify charts
                     = Depends on refreshSimpleViews
         """
-        self.add_function(self.updateSpotifyCharts, 'Update Spotify Charts')
+        self.add_function(self.updateSpotifyCharts, 'Update Spotify Charts', error_on_failure=False)
 
         self.add_function(self.archiveNielsenFiles, 'Archive Nielsen Files')
 
