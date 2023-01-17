@@ -30,6 +30,9 @@ class Db:
 
     def __init__(self, db_name='rca_db'):
 
+        if db_name not in db_connections.keys():
+            raise Exception(f'{db_name} is not a valid database connection name')
+
         # If tmp folder doesn't exist, create it
         if os.path.isdir(TMP_FOLDER) == False:
             os.mkdir(TMP_FOLDER)
