@@ -2686,7 +2686,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 - filterSignedFromSpotifyCopyrights | Use spotify copyrights to filter signed artists
                     = Depends on cacheSpotifySongs, cacheSpotifyArtists
         """
-        self.add_function(self.cacheChartmetricIds, 'Cahce Chartmetric Ids', error_on_failure=False)
+        self.add_function(self.cacheChartmetricIds, 'Cache Chartmetric Ids', error_on_failure=False)
         self.add_function(self.updateGenres, 'Update Genres')
         self.add_function(self.filterSignedFromSpotifyCopyrights, 'Filter Signed from Spotify Copyrights')
 
