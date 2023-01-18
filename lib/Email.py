@@ -12,7 +12,17 @@ SMTP_SENDER = 'graphitti@sonymusic.com'
 
 class Email:
 
-    def send(self, receivers, subject, body, files = []):
+    def send(self, receivers: list[str], subject: str, body: str, files = []):
+
+        """
+            Send an email to any number of people, optionally with file attachments.
+
+            @param files
+                {
+                    "path": <fullfile path to the file>,
+                    "filename": <whatever you want to call the file inside the email, include the extension>
+                }
+        """
         
         try:
             
@@ -27,12 +37,7 @@ class Email:
                 to = ','.join(receivers)
             
             # Build message
-            body = f"""
-            {body}
-
-            Sincerely,
-            Graphitti Team
-            """
+            body = f'{body}\n\nSincerely,\nGraphitti Team'
             
             # Build multipart message
             msg = MIMEMultipart()
