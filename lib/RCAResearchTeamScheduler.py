@@ -22,23 +22,23 @@ class RCAResearchTeamScheduler(SchedulerBase):
 
         # Tuesday
         self.set('Tuesday', NielsenDailyUSPipeline)
-        self.set('Tuesday', NielsenDailyUSPipeline)
+        self.set('Tuesday', NielsenDailyGlobalPipeline)
 
         # Wednesday
         self.set('Wednesday', NielsenDailyUSPipeline)
-        self.set('Wednesday', NielsenDailyUSPipeline)
+        self.set('Wednesday', NielsenDailyGlobalPipeline)
 
         # Thursday
         self.set('Thursday', NielsenDailyUSPipeline)
-        self.set('Thursday', NielsenDailyUSPipeline)
+        self.set('Thursday', NielsenDailyGlobalPipeline)
 
         # Friday
         self.set('Friday', NielsenDailyUSPipeline)
-        self.set('Friday', NielsenDailyUSPipeline)
+        self.set('Friday', NielsenDailyGlobalPipeline)
 
         # Saturday
         self.set('Saturday', NielsenDailyUSPipeline)
-        self.set('Saturday', NielsenDailyUSPipeline)
+        self.set('Saturday', NielsenDailyGlobalPipeline)
 
     def test_build(self):
 
