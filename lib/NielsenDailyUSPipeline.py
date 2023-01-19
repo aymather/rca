@@ -3,10 +3,13 @@ from .PipelineBase import PipelineBase
 from .functions import chunker
 from .Sftp import Sftp
 from .Spotify import Spotify
-from zipfile import ZipFile
 from .Fuzz import Fuzz
 from .Db import Db
+from .functions import today
 from datetime import datetime, timedelta
+from zipfile import ZipFile
+import requests
+import unicodedata
 from uuid import uuid4
 import pandas as pd
 import random
@@ -137,6 +140,11 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         self.folders = {
             'exports': os.path.join(REPORTS_FOLDER, EXPORTS_TEMPLATE.format(formatted_date))
+        }
+
+        self.reports_fullfiles = {
+            'genius_scrape': os.path.join(self.folders['exports'], f'genius_scrape_{formatted_date}.csv'),
+            'nielsen_daily_audio': os.path.join(self.folders['exports'], f'nielsen_daily_songs_{formatted_date}.csv')
         }
 
     def downloadFiles(self):
@@ -2627,6 +2635,372 @@ class NielsenDailyUSPipeline(PipelineBase):
         s3_fullfile = US_S3_UPLOAD_FOLDER_TEMPLATE.format(self.files['zip'])
         self.aws.upload_s3(self.fullfiles['zip_local_archive'], s3_fullfile)
 
+    def report_genius(self):
+
+        """
+            Generates the genius report, should be scheduled for every monday.
+        """
+
+        def get_genius_data(genre, page):
+
+            url = f'https://genius.com/api/songs/chart?time_period=day&chart_genre={genre}&page={page}&per_page=50'
+            res = requests.get(url)
+            res = res.json()
+            
+            items = res['response']['chart_items']
+            
+            return items
+
+        def unwrap_item(item, rank, genre):
+            
+            genius_id = item['item']['id']
+            stats = item['item']['stats']
+            concurrents = stats['concurrents'] if 'concurrents' in stats else 0
+            is_hot = stats['hot'] if 'hot' in stats else 0
+            views = stats['pageviews'] if 'pageviews' in stats else 0
+            title = unicodedata.normalize('NFKD', item['item']['full_title'])
+            artist = unicodedata.normalize('NFKD', item['item']['artist_names'])
+            song_rank = next(rank)
+            
+            return {
+                'genius_id': genius_id,
+                'concurrents': concurrents,
+                'is_hot': is_hot,
+                'rank': song_rank,
+                'views': views,
+                'title': title,
+                'artist': artist,
+                'genre': genre
+            }
+
+        def rank_gen():
+            n = 1
+            while True:
+                yield n
+                n += 1
+
+        # Start by getting all the data and aggregating together
+        genres = ['all', 'pop', 'rap', 'rb', 'rock', 'country']
+        items = []
+        for genre in genres:
+            
+            idx = 1
+            rank = rank_gen()
+            while True:
+
+                data = get_genius_data(genre, idx)
+
+                if len(data) == 0:
+                    break
+
+                items += [unwrap_item(item, rank, genre) for item in data]
+
+                idx += 1
+
+        df = pd.DataFrame(items)
+
+        # Clean types
+        df = df.astype({
+            'genius_id': 'str',
+            'concurrents': 'int',
+            'is_hot': 'bool',
+            'views': 'int',
+            'title': 'str',
+            'artist': 'str',
+            'genre': 'str'
+        })
+
+        reporting_db = Db('reporting_db')
+        reporting_db.connect()
+
+        # Get an isrcs from the reporting db that exist in conjunction with the genius ids
+        string = """
+            select id as genius_id, isrc
+            from chartmetric_raw.genius_track
+            where id in %(genius_ids)s
+                and isrc is not null
+        """
+        params = { 'genius_ids': tuple(df['genius_id'].unique()) }
+        ids = reporting_db.execute(string, params)
+        ids = ids.astype({ 'genius_id': 'str' })
+
+        reporting_db.disconnect()
+
+        df = pd.merge(df, ids, on='genius_id', how='left')
+
+        string = """
+            select
+                distinct on (isrc)
+                song_id::text,
+                isrc,
+                coalesce(signed, false) as signed,
+                coalesce(copyrights, '') as copyrights,
+                coalesce(tw_streams, 0) as tw_streams,
+                coalesce(lw_streams, 0) as lw_streams,
+                coalesce(pct_chg, 0) as pct_chg
+            from (
+                select
+                    sp.song_id,
+                    sp.isrc,
+                    rr.signed,
+                    sp.copyrights,
+                    st.tw_streams,
+                    st.lw_streams,
+                    st.pct_chg
+                from nielsen_song.spotify sp
+                left join nielsen_song.reports_recent rr on sp.song_id = rr.song_id
+                left join nielsen_song.stats st on sp.song_id = st.song_id
+                where isrc in %(isrcs)s
+                union all
+                select
+                    null as song_id,
+                    sp.isrc,
+                    false as signed,
+                    copyrights,
+                    0 as tw_streams,
+                    0 as lw_streams,
+                    0 as pct_chg
+                from nielsen_song.spotify_extra sp
+                where isrc in %(isrcs)s
+            ) q
+        """
+        params = { 'isrcs': tuple(df[~df['isrc'].isnull()].isrc.unique()) }
+        existing_isrcs = self.db.execute(string, params)
+
+        # Add the spotify and extra data to genius data
+        df = pd.merge(df, existing_isrcs, on='isrc', how='left')
+
+        # Perform one last scan for signed artists based on the spotify copyright info
+        df = self.basicSignedCheck(df)
+
+        # Clean up the dataframe
+        keep_cols = [
+            'genius_id',
+            'song_id',
+            'title',
+            'artist',
+            'concurrents',
+            'is_hot',
+            'rank',
+            'views',
+            'signed',
+            'copyrights',
+            'tw_streams',
+            'lw_streams',
+            'pct_chg'
+        ]
+        df = df[keep_cols].reset_index(drop=True)
+
+        # Add a date column
+        t = today()
+        df['date'] = t
+
+        # Write export to reports folder
+        df.to_csv(self.reports_fullfiles['genius_scrape'], index=False)
+
+    def report_dailySongs(self):
+
+        # Convert columns into correct date indicies
+        def getDateIndicies(cols):
+            idx = []
+            for col in cols:
+                d = str2Date(col)
+                if d:
+                    idx.append(col)
+            return idx
+
+        # Convert a string to a date object
+        def str2Date(s):
+            try:
+                return datetime.strptime(s, date_format())
+            except ValueError:
+                try:
+                    return datetime.strptime(s, '%d/%m/%Y')
+                except ValueError:
+                    return False
+                
+        def date_format():
+            return '%m/%d/%Y'
+
+        # Clean and standardize data/columns
+        def cleanColumns(df):
+
+            # We can remove premium/oda columns because they aren't relevant in this context
+            df = df[df.columns.drop(list(df.filter(regex='Ad Supported ODA')))]
+            df = df[df.columns.drop(list(df.filter(regex='Premium ODA')))]
+
+            # All that's left for the daily streaming is the total ODA and we can just remove that
+            # part of the substring to make it easier to deal with dates in the columns
+            df = df.rename(columns={ i: i.replace(' - Total ODA', '') for i in df.columns })
+            
+            # Rename the remaining columns for consistency and database usage
+            renameable = {
+                'TW Rank': 'tw_rank',
+                'LW Rank': 'lw_rank',
+                'Artist': 'artist',
+                'Title': 'title',
+                'Unified Song Id': 'unified_song_id',
+                'LW On-Demand Audio Streams': 'lw_oda_streams',
+                'L2W_On_Demand_Audio_Streams': 'l2w_oda_streams',
+                'Weekly %change On-Demand Audio Streams': 'weekly_pct_chg_oda_streams',
+                'YTD On-Demand Audio Streams': 'ytd_oda_streams',
+                'Top ISRC': 'isrc',
+                'Label Abbrev': 'label',
+                'CoreGenre': 'core_genre',
+                'Release_date': 'release_date',
+                'WTD Building ODA (Friday-Thursday)': 'wtd_building_oda',
+                'TW On-Demand Audio Streams': 'tw_oda_streams',
+                'RTD On-Demand Audio Streams': 'rtd_oda_streams',
+                '7-day Rolling ODA': 'tw_rolling_oda',
+                'pre-7days rolling ODA': 'lw_rolling_oda',
+                'TW Digital Track Sales': 'tw_digital_track_sales',
+                'ATD Digital Track Sales': 'atd_digital_track_sales',
+                'YTD Digital Track Sales': 'ytd_digital_track_sales',
+                'TW On-Demand Video': 'tw_odv',
+                'LW On-Demand Video': 'lw_odv',
+                'YTD On-Demand Video': 'ytd_odv',
+                'ATD On-Demand Video': 'atd_odv'
+            }
+            
+            df = df.rename(columns=renameable)
+            
+            # Clean the types
+            df = df.astype({
+                'tw_rank': 'int',
+                'lw_rank': 'int',
+                'artist': 'str',
+                'title': 'str',
+                'unified_song_id': 'str',
+                'label': 'str',
+                'core_genre': 'str',
+                'tw_oda_streams': 'int',
+                'lw_oda_streams': 'int',
+                'l2w_oda_streams': 'int',
+                'ytd_oda_streams': 'int',
+                'rtd_oda_streams': 'int',
+                'wtd_building_oda': 'float',
+                'tw_rolling_oda': 'int',
+                'lw_rolling_oda': 'int',
+                'tw_digital_track_sales': 'int',
+                'ytd_digital_track_sales': 'int',
+                'atd_digital_track_sales': 'int',
+                'tw_odv': 'int',
+                'lw_odv': 'int',
+                'ytd_odv': 'int',
+                'atd_odv': 'int'
+            })
+            
+            # Remove the .0 from unified_song_id just in case
+            df = df.astype({ 'unified_song_id': 'str' })
+            df['unified_song_id'] = df.apply(lambda x: x.unified_song_id.split('.')[0], axis=1)
+            
+            return df
+
+        df = pd.read_csv(self.fullfiles['song'], encoding='UTF-16')
+
+        # Clean columns
+        df = cleanColumns(df)
+
+        # Get date indicies
+        dateCols = getDateIndicies(df.columns)
+
+        # Remove anything that hasn't done >10k streams 3 days ago
+        df = df[df[dateCols[1]] >= 10000].reset_index(drop=True)
+
+        # Add some spotify info and filter out signed acts
+        string = """
+            create temp table unified_song_ids (
+                unified_song_id text
+            );
+        """
+        self.db.execute(string)
+        self.db.big_insert(df[['unified_song_id']], 'unified_song_ids')
+
+        string = """
+            select
+                m.unified_song_id,
+                m.signed,
+                sp.genre,
+                sp.copyrights,
+                sp.instrumentalness
+            from nielsen_song.__song m
+            join unified_song_ids u on m.unified_song_id = u.unified_song_id
+            left join nielsen_song.spotify sp on m.song_id = sp.song_id
+        """
+        signed_df = self.db.execute(string)
+        df = pd.merge(df, signed_df, on='unified_song_id', how='left')
+        df = df[df['signed'] != True].reset_index(drop=True)
+
+        # Delete the temp table just to be neat in the cleanup
+        string = 'drop table unified_song_ids'
+        self.db.execute(string)
+
+        # Add a bunch of extra stats
+
+        # Percent change lw -> tw
+        df['pct_chg'] = df['tw_oda_streams'].div(df['lw_oda_streams']) - 1
+
+        # Rolling percent change lw -> tw
+        df['rolling_pct_chg'] = df['tw_rolling_oda'].div(df['lw_rolling_oda']) - 1
+
+        # 2 Day percent change
+        df['2_day_chg'] = df[dateCols[0]].div(df[dateCols[1]]) - 1
+
+        # 3 Day percent change
+        df['3_day_chg'] = df[dateCols[1]].div(df[dateCols[2]]) - 1
+
+        # 7 Day Acceleration
+        df['7_day_acc'] = df[dateCols[1]].div(df[dateCols[7]]).pow(1 / 6) - 1
+
+        # 4 Day Acceleration
+        df['4_day_acc'] = df[dateCols[1]].div(df[dateCols[4]]).pow(1 / 3) - 1
+
+        # Filter based on aaron's criteria
+        mask = (
+            (df['rolling_pct_chg'] >= 0) & \
+            (
+                (
+                    (df['2_day_chg'] >= 0.15) & \
+                    (df['3_day_chg'] > 0)
+                ) |
+                (df['3_day_chg'] >= 0.25) |
+                (
+                    (df['7_day_acc'] >= 0.15) & \
+                    (df['4_day_acc'] > 0)
+                ) |
+                (
+                    (df['rolling_pct_chg'] >= 0.5) & \
+                    (df['lw_rolling_oda'] > 100000)
+                ) |
+                (
+                    (df['4_day_acc'] >= 0.15) & \
+                    (df['3_day_chg'] > 0)
+                )
+            )
+        )
+
+        df = df[mask].reset_index(drop=True)
+
+        df.to_csv(self.reports_fullfiles['nielsen_daily_audio'], index=False)
+
+    def emailReports(self):
+
+        files = []
+        files.append({
+            'path': self.reports_fullfiles['genius_scrape'],
+            'filename': 'genius_scrape.csv'
+        })
+
+        files.append({
+            'path': self.reports_fullfiles['nielsen_daily_audio'],
+            'filename': 'nielsen_daily_audio.csv'
+        })
+
+        recipients = [
+            'alec.mather@rcarecords.com'
+        ]
+        self.email.send(recipients, 'Daily Reports', 'The good grace of god beith our strength. HUZZAH!', files)
+
     def build(self):
 
         self.add_function(self.downloadFiles, 'Download Files')
@@ -2698,7 +3072,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     = Depends on updateGenres, refreshStats
         """
         self.add_function(self.refreshReportsRecent, 'Refresh Reports Recent')
-        self.add_function(self.recordGenreCharts, 'Record Genre Charts')
+        # self.add_function(self.recordGenreCharts, 'Record Genre Charts')
 
         """
             Stage 7:
@@ -2714,14 +3088,30 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         self.add_function(self.refreshSimpleViews, 'Refresh Simple Views')
 
+        # Commit
+        self.add_function(self.db.commit, 'Commit')
+
         """
             Stage 9:
                 - updateSpotifyCharts | Updates spotify charts
                     = Depends on refreshSimpleViews
+                - archiveNielsenFiles | Upload nielsen zip file to s3 bucket (does not delete the local copy)
         """
         self.add_function(self.updateSpotifyCharts, 'Update Spotify Charts', error_on_failure=False)
+        self.add_function(self.archiveNielsenFiles, 'Archive Nielsen Files', error_on_failure=False)
 
-        self.add_function(self.archiveNielsenFiles, 'Archive Nielsen Files')
+        """
+            Reporting
+
+            This section now just has to do with creating and sending out reports according to our schedule.
+
+            Monday:
+                Genius Scrape
+        """
+
+        self.add_function(self.report_genius, 'Genius Scrape', error_on_failure=False)
+        self.add_function(self.report_dailySongs, 'Daily Songs', error_on_failure=False)
+        self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
 
     def test_build(self):
 
@@ -2733,4 +3123,8 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.add_function(self.processArtists, 'Process Artists')
         self.add_function(self.processSongs, 'Process Songs')
         self.add_function(self.testDbInsert, 'Test Db Insert')
-        self.add_function(self.deleteFiles, 'Delete Files')
+        # self.add_function(self.deleteFiles, 'Delete Files')
+
+        self.add_function(self.report_genius, 'Genius Scrape', error_on_failure=False)
+        self.add_function(self.report_dailySongs, 'Daily Songs', error_on_failure=False)
+        self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)

@@ -44,7 +44,7 @@ class SchedulerBase(ABC):
 
     def run(self):
 
-        self.build()
+        self.build() if self.settings['is_testing'] == False else self.test_build()
 
         day_of_week = self.settings['date'].strftime('%A')
         for Pipeline in self.schedule[day_of_week]:
@@ -59,4 +59,8 @@ class SchedulerBase(ABC):
 
     @abstractmethod
     def build(self):
+        pass
+
+    @abstractmethod
+    def test_build(self):
         pass

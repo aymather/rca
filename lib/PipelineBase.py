@@ -1,6 +1,7 @@
 from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, TMP_FOLDER, REPORTS_FOLDER, MAPPING_TABLE_FOLDER
 from simple_chalk import chalk
 from .Time import Time
+from .Email import Email
 from abc import abstractmethod, ABC
 from .settings import get_settings
 from .Db import Db
@@ -44,8 +45,15 @@ class PipelineBase(ABC):
         # date | runtime date to use, this is typically just "today" but you can also use the --date argument to change which date you want to run
         self.settings = get_settings()
 
+        # Just stores the day of the week, we have some stuff that depends on what day of the week it is, such as which reports
+        # to generate and send out on which days
+        self.day_of_week = self.settings['date'].strftime('%A')
+
         # Each pipeline has a list of functions that can be run
         self.functions = []
+
+        # For sending emails
+        self.email = Email()
 
         # Every time we run our pipeline, the return of that pipeline will tell us everything that happened
         # which we can then send to ourselves in an email to keep track of any errors or anything unexpected that happened in our pipeline.
@@ -151,7 +159,6 @@ class PipelineBase(ABC):
                     self.add_report(name, True, '')
 
                 except Exception as e:
-                    print('CAUGHT ERROR')
                     print(str(e))
                     self.add_report(name, False, str(e))
                     if error_on_failure:

@@ -39,3 +39,7 @@ class RCAResearchTeamScheduler(SchedulerBase):
         # Saturday
         self.set('Saturday', NielsenDailyUSPipeline)
         self.set('Saturday', NielsenDailyUSPipeline)
+
+    def test_build(self):
+
+        self.set('Wednesday', NielsenDailyUSPipeline)
