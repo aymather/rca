@@ -1,6 +1,6 @@
 from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, REPORTS_FOLDER
 from .PipelineBase import PipelineBase
-from .functions import chunker
+from .functions import chunker, getSpotifyTrackDataFromSpotifyUsingIsrcTitleAndArtist
 from .Sftp import Sftp
 from .Spotify import Spotify
 from .Fuzz import Fuzz
@@ -144,7 +144,10 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         self.reports_fullfiles = {
             'genius_scrape': os.path.join(self.folders['exports'], f'genius_scrape_{formatted_date}.csv'),
-            'nielsen_daily_audio': os.path.join(self.folders['exports'], f'nielsen_daily_songs_{formatted_date}.csv')
+            'nielsen_daily_audio': os.path.join(self.folders['exports'], f'nielsen_daily_songs_{formatted_date}.csv'),
+            'shazam_by_market_streams': os.path.join(self.folders['exports'], f'shazam_by_market_streams_{formatted_date}.csv'),
+            'shazam_by_market': os.path.join(self.folders['exports'], f'shazam_by_market_{formatted_date}.csv'),
+            'shazam_rank_by_country': os.path.join(self.folders['exports'], f'shazam_rank_by_country_{formatted_date}.csv')
         }
 
     def downloadFiles(self):
@@ -359,6 +362,7 @@ class NielsenDailyUSPipeline(PipelineBase):
     def basicSignedCheck(self, df: pd.DataFrame):
 
         """
+            @param df('copyrights', 'signed', 'artist')
             @param | df with columns: copyrights(str) | signed(bool)
         """
 
@@ -2983,18 +2987,369 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         df.to_csv(self.reports_fullfiles['nielsen_daily_audio'], index=False)
 
+    def getExistingSpotifySongInfoByIsrc(self, isrcs):
+
+        """
+            @param isrcs | array[str | None]
+
+            Basically all you need to do is gather all the isrcs you want to match and pass them as an array
+            to this function. It will drop duplicates, get rid of empty strings & None values. Once it has cleaned
+            it up, it will create a temporary table in our db, match both our nielsen_song.spotify and nielsen_song.spotify_extra
+            tables against the isrcs you passed. The temp table will be dropped and it will return a dataframe with the following columns...
+
+            @returns df('song_id', 'isrc', 'signed', 'copyrights', 'tw_streams', 'lw_streams', 'pct_chg')
+        """
+
+        # Convert the array to a dataframe for easy data cleanup handling
+        isrcs = pd.DataFrame({ 'isrc': isrcs })
+
+        # Drop any null values, empty strings & duplicates
+        isrcs = isrcs[(~isrcs['isrc'].isnull()) & (isrcs['isrc'] != '')][['isrc']].drop_duplicates(subset=['isrc']).reset_index(drop=True)
+
+        # Create temp table for merge matching, we know this technique...
+        string = """
+            create temp table tmp_isrcs (
+                isrc text
+            );
+        """
+        self.db.execute(string)
+        self.db.big_insert(isrcs, 'tmp_isrcs')
+
+        # Select the data from our tables using merge matching
+        # Select data from both nielsen_song.spotify & nielsen_song.spotify_extra
+        string = """
+            select
+                sp.song_id,
+                sp.isrc,
+                rr.signed,
+                sp.copyrights,
+                st.tw_streams,
+                st.lw_streams,
+                st.pct_chg
+            from tmp_isrcs ti
+            join nielsen_song.spotify sp on ti.isrc = sp.isrc
+            left join nielsen_song.__reports_recent rr on sp.song_id = rr.song_id
+            left join nielsen_song.__stats st on sp.song_id = st.song_id
+            union all
+            select
+                null as song_id,
+                sp.isrc,
+                false as signed,
+                copyrights,
+                null as tw_streams,
+                null as lw_streams,
+                null as pct_chg
+            from tmp_isrcs ti
+            join nielsen_song.spotify_extra sp on ti.isrc = sp.isrc
+        """
+        existing_isrcs = self.db.execute(string)
+
+        # Drop out temporary table to stay clean
+        string = 'drop table tmp_isrcs'
+        self.db.execute(string)
+
+        # Lastly, we can drop duplicate rows
+        existing_isrcs = existing_isrcs.drop_duplicates(subset=['isrc']).reset_index(drop=True)
+
+        return existing_isrcs
+    
+    def report_shazam(self):
+
+        reporting_db = Db('reporting_db')
+        reporting_db.connect()
+
+        def generateShazamRankByCountry():
+
+            # Pull today's Shazam data
+            string = """
+                with tp as (
+                    select
+                        itunes.isrc,
+                        shazam_track_id as shazam_id,
+                        itunes.artist_name as artist,
+                        itunes.track_name as title,
+                        rank as tp_rank
+                    from chartmetric_raw.shazam_chart
+                    inner join chartmetric_raw.shazam on shazam.id = shazam_chart.shazam_track_id
+                    inner join chartmetric_raw.itunes on itunes.itunes_track_id = shazam.itunes_track_id
+                    where country = 'US'
+                        and timestp = dateadd('days', -2, current_date)
+                        and city is null
+                ), lp as (
+                    select
+                        itunes.isrc,
+                        rank as lp_rank
+                    from chartmetric_raw.shazam_chart
+                    inner join chartmetric_raw.shazam on shazam.id = shazam_chart.shazam_track_id
+                    inner join chartmetric_raw.itunes on itunes.itunes_track_id = shazam.itunes_track_id
+                    where country = 'US'
+                        and timestp = dateadd('days', -3, current_date)
+                        and city is null
+                ), lw as (
+                    select
+                        itunes.isrc,
+                        rank as lw_rank
+                    from chartmetric_raw.shazam_chart
+                    inner join chartmetric_raw.shazam on shazam.id = shazam_chart.shazam_track_id
+                    inner join chartmetric_raw.itunes on itunes.itunes_track_id = shazam.itunes_track_id
+                    where country = 'US'
+                        and timestp = dateadd('days', -7, current_date)
+                        and city is null
+                )
+
+                select tp.*, lp.lp_rank, lw.lw_rank
+                from tp
+                left join lp on tp.isrc = lp.isrc
+                left join lw on tp.isrc = lw.isrc
+            """
+            shazam = reporting_db.execute(string)
+
+            existing_isrcs = self.getExistingSpotifySongInfoByIsrc(shazam.isrc.values)
+
+            # Get all the rows that do not have existing data in our database
+            new_items = shazam[~shazam['isrc'].isin(existing_isrcs.isrc)].drop_duplicates(subset=['isrc']).reset_index(drop=True)
+            new_items = new_items[['isrc', 'artist', 'title']]
+
+            # Get their track level data from spotify
+            new_items = getSpotifyTrackDataFromSpotifyUsingIsrcTitleAndArtist(new_items)
+
+            # We're going to cache those new items now, so we need to drop the artist/title columns and
+            # drop anything that didn't result with an isrc
+            new_items = new_items.drop(columns=['artist', 'title'])
+            new_items = new_items[~new_items['isrc'].isnull()].reset_index(drop=True)
+
+            # Only insert if we have something to insert
+            if not new_items.empty:
+                self.db.big_insert(new_items, 'nielsen_song.spotify_extra')
+
+            # This can happen if we don't actually have anything new, so just add the column if that's the case
+            if 'copyrights' not in new_items:
+                new_items['copyrights'] = None
+
+            # Alter our new items to match the shape of our existing items
+            new_items = new_items[['isrc', 'copyrights']]
+            new_items[['signed', 'tw_streams', 'lw_streams', 'pct_chg']] = None
+
+            # Concat together our existing and new items
+            keep_columns = ['isrc', 'copyrights', 'signed', 'tw_streams', 'lw_streams', 'pct_chg']
+            spotify_df = pd.concat([existing_isrcs[keep_columns], new_items[keep_columns]]).reset_index(drop=True)
+
+            # Now that we have, to the best of our ability, all the spotify information in one dataframe, we can
+            # merge that onto our shazam data using the isrc as the key
+            shazam = pd.merge(shazam, spotify_df, on='isrc', how='left')
+
+            # Any place where the signed data is None, just assume that that's false
+            shazam.loc[shazam['signed'].isnull(), 'signed'] = False
+
+            # We're going to double check what is and isn't signed
+            # First we'll create a meta column on unique isrc so we don't duplicate
+            # We also don't need to check for songs that are already marked as signed
+            # Last, let's just drop any unnecessary columns for cleanlyness
+            meta = shazam[shazam['signed'] == False].drop_duplicates(subset=['isrc']).reset_index(drop=True)
+            meta = meta[['isrc', 'artist', 'copyrights', 'signed']]
+
+            meta = self.basicSignedCheck(meta)
+
+            # First remove the isrcs we have already identified as signed
+            shazam = shazam[shazam['signed'] != True].reset_index(drop=True)
+
+            # Swap the 'signed' column on the shazam table with the meta table so we can filter out
+            # the signed artists that we just found
+            shazam = shazam.drop(columns=['signed'])
+            shazam = pd.merge(shazam, meta[['isrc', 'signed']], on='isrc', how='left')
+            shazam = shazam[shazam['signed'] != True].reset_index(drop=True)
+
+            # We're going to do some math on these shazam rank columns so we can fill the null values with 0s
+            math_cols = ['tp_rank', 'lp_rank', 'lw_rank', 'tw_streams', 'lw_streams', 'pct_chg']
+            shazam[math_cols] = shazam[math_cols].fillna(0)
+
+            # Also just fix the types to be sure
+            math_cols = { col: 'int' for col in math_cols }
+            shazam = shazam.astype(math_cols)
+
+            # Introduce new stats columns we're going to calculate
+            stat_cols = [
+                'rank_2_day_chg',
+                'rank_7_day_chg'
+            ]
+            shazam[stat_cols] = None
+
+            # Add rank changes, if something is 0 in the comparison day then it's new
+            shazam.loc[shazam['lp_rank'] == 0, 'rank_2_day_chg'] = 'New'
+            shazam.loc[shazam['lp_rank'] != 0, 'rank_2_day_chg'] = shazam['lp_rank'] - shazam['tp_rank']
+
+            shazam.loc[shazam['lw_rank'] == 0, 'rank_7_day_chg'] = 'New'
+            shazam.loc[shazam['lw_rank'] != 0, 'rank_7_day_chg'] = shazam['lw_rank'] - shazam['tp_rank']
+
+            return shazam
+
+        def generateShazamRankByCity(shazam_rank_by_country):
+
+            string = """
+                with tp as (
+                    select
+                        itunes.isrc,
+                        shazam_track_id as shazam_id,
+                        itunes.artist_name as artist,
+                        itunes.track_name as title,
+                        city as city_name,
+                        rank as tp_rank
+                    from chartmetric_raw.shazam_chart
+                    inner join chartmetric_raw.shazam on shazam.id = shazam_chart.shazam_track_id
+                    inner join chartmetric_raw.itunes on itunes.itunes_track_id = shazam.itunes_track_id
+                    where country = 'US'
+                        and timestp = dateadd('days', -2, current_date)
+                ), lp as (
+                    select
+                        itunes.isrc,
+                        city as city_name,
+                        rank as lp_rank
+                    from chartmetric_raw.shazam_chart
+                    inner join chartmetric_raw.shazam on shazam.id = shazam_chart.shazam_track_id
+                    inner join chartmetric_raw.itunes on itunes.itunes_track_id = shazam.itunes_track_id
+                    where country = 'US'
+                        and timestp = dateadd('days', -3, current_date)
+                ), lw as (
+                    select
+                        itunes.isrc,
+                        city as city_name,
+                        rank as lw_rank
+                    from chartmetric_raw.shazam_chart
+                    inner join chartmetric_raw.shazam on shazam.id = shazam_chart.shazam_track_id
+                    inner join chartmetric_raw.itunes on itunes.itunes_track_id = shazam.itunes_track_id
+                    where country = 'US'
+                        and timestp = dateadd('days', -7, current_date)
+                )
+
+                select tp.*, lp.lp_rank, lw.lw_rank
+                from tp
+                left join lp on tp.isrc = lp.isrc and tp.city_name = lp.city_name
+                left join lw on tp.isrc = lw.isrc and tp.city_name = lw.city_name
+            """
+            shazam = reporting_db.execute(string)
+
+            existing_isrcs = self.getExistingSpotifySongInfoByIsrc(shazam.isrc.values)
+
+            # Get all the rows that do not have existing data in our database
+            new_items = shazam[~shazam['isrc'].isin(existing_isrcs.isrc)].drop_duplicates(subset=['isrc']).reset_index(drop=True)
+            new_items = new_items[['isrc', 'artist', 'title']]
+
+            # Get their track level data from spotify
+            new_items = getSpotifyTrackDataFromSpotifyUsingIsrcTitleAndArtist(new_items)
+
+            # We're going to cache those new items now, so we need to drop the artist/title columns and
+            # drop anything that didn't result with an isrc
+            new_items = new_items.drop(columns=['artist', 'title'])
+            new_items = new_items[~new_items['isrc'].isnull()].reset_index(drop=True)
+
+            # Only insert if we have something to insert
+            if not new_items.empty:
+                self.db.big_insert(new_items, 'nielsen_song.spotify_extra')
+
+            # This can happen if we don't actually have anything new, so just add the column if that's the case
+            if 'copyrights' not in new_items:
+                new_items['copyrights'] = None
+
+            # Alter our new items to match the shape of our existing items
+            new_items = new_items[['isrc', 'copyrights']].reset_index(drop=True)
+            new_items[['signed', 'tw_streams', 'lw_streams', 'pct_chg']] = None
+
+            # Concat together our existing and new items
+            keep_columns = ['isrc', 'copyrights', 'signed', 'tw_streams', 'lw_streams', 'pct_chg']
+            spotify_df = pd.concat([existing_isrcs[keep_columns], new_items[keep_columns]]).reset_index(drop=True)
+
+            # Now that we have, to the best of our ability, all the spotify information in one dataframe, we can
+            # merge that onto our shazam data using the isrc as the key
+            shazam = pd.merge(shazam, spotify_df, on='isrc', how='left')
+
+            # Add the market ranks
+            market_rank = self.db.execute('select * from misc.market_rank')
+            shazam = pd.merge(shazam, market_rank[['city_name', 'market_rank']], how='left', on='city_name')
+            national_isrcs = shazam_rank_by_country.isrc.unique()
+
+            # Add a column that marks whether it landed on the national chart or not
+            shazam['national_chart'] = False
+            shazam.loc[shazam['isrc'].isin(national_isrcs), 'national_chart'] = True
+
+            # Add stats columns
+            stats_cols = [
+                'rank_2_day_chg',
+                'rank_7_day_chg'
+            ]
+            shazam[stats_cols] = None
+
+            # We're going to do some math on these shazam rank columns so we can fill the null values with 0s
+            math_cols = ['tp_rank', 'lp_rank', 'lw_rank', 'tw_streams', 'lw_streams', 'pct_chg']
+            shazam[math_cols] = shazam[math_cols].fillna(0)
+
+            # Also just fix the types to be sure
+            math_cols = { col: 'int' for col in math_cols }
+            shazam = shazam.astype(math_cols)
+
+            # Add rank changes, if something is 0 in the comparison day then it's new
+            shazam.loc[shazam['lp_rank'] == 0, 'rank_2_day_chg'] = 'New'
+            shazam.loc[shazam['lp_rank'] != 0, 'rank_2_day_chg'] = shazam['lp_rank'] - shazam['tp_rank']
+
+            shazam.loc[shazam['lw_rank'] == 0, 'rank_7_day_chg'] = 'New'
+            shazam.loc[shazam['lw_rank'] != 0, 'rank_7_day_chg'] = shazam['lw_rank'] - shazam['tp_rank']
+
+            # We can drop anything that's signed at this point
+            shazam = shazam[shazam['signed'] != True].reset_index(drop=True)
+
+            # Do one more check for signed things
+            shazam = self.basicSignedCheck(shazam)
+
+            # Drop signed things again
+            shazam = shazam[shazam['signed'] != True].reset_index(drop=True)
+
+            meta = shazam.drop_duplicates(subset=['shazam_id']).reset_index(drop=True)
+            counts = shazam.groupby('shazam_id').size().rename('count').reset_index()
+            meta = pd.merge(meta, counts, on='shazam_id')
+
+            return meta, shazam
+        
+        shazam_rank_by_country = generateShazamRankByCountry()
+        shazam_by_market_streams, shazam_by_market = generateShazamRankByCity(shazam_rank_by_country)
+
+        shazam_rank_by_country.to_csv(self.reports_fullfiles['shazam_rank_by_country'], index=False)
+        shazam_by_market_streams.to_csv(self.reports_fullfiles['shazam_by_market_streams'], index=False)
+        shazam_by_market.to_csv(self.reports_fullfiles['shazam_by_market'], index=False)
+
+        reporting_db.disconnect()
+
     def emailReports(self):
 
         files = []
-        files.append({
-            'path': self.reports_fullfiles['genius_scrape'],
-            'filename': 'genius_scrape.csv'
-        })
+        
+        if os.path.exists(self.reports_fullfiles['genius_scrape']):
+            files.append({
+                'path': self.reports_fullfiles['genius_scrape'],
+                'filename': os.path.basename(self.reports_fullfiles['genius_scrape'])
+            })
 
-        files.append({
-            'path': self.reports_fullfiles['nielsen_daily_audio'],
-            'filename': 'nielsen_daily_audio.csv'
-        })
+        if os.path.exists(self.reports_fullfiles['nielsen_daily_audio']):
+            files.append({
+                'path': self.reports_fullfiles['nielsen_daily_audio'],
+                'filename': os.path.basename(self.reports_fullfiles['nielsen_daily_audio'])
+            })
+
+        if os.path.exists(self.reports_fullfiles['shazam_by_market']):
+            files.append({
+                'path': self.reports_fullfiles['shazam_by_market'],
+                'filename': os.path.basename(self.reports_fullfiles['shazam_by_market'])
+            })
+
+        if os.path.exists(self.reports_fullfiles['shazam_by_market_streams']):
+            files.append({
+                'path': self.reports_fullfiles['shazam_by_market_streams'],
+                'filename': os.path.basename(self.reports_fullfiles['shazam_by_market_streams'])
+            })
+
+        if os.path.exists(self.reports_fullfiles['shazam_rank_by_country']):
+            files.append({
+                'path': self.reports_fullfiles['shazam_rank_by_country'],
+                'filename': os.path.basename(self.reports_fullfiles['shazam_rank_by_country'])
+            })
 
         recipients = [
             'alec.mather@rcarecords.com'
@@ -3123,8 +3478,8 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.add_function(self.processArtists, 'Process Artists')
         self.add_function(self.processSongs, 'Process Songs')
         self.add_function(self.testDbInsert, 'Test Db Insert')
-        # self.add_function(self.deleteFiles, 'Delete Files')
 
-        self.add_function(self.report_genius, 'Genius Scrape', error_on_failure=False)
-        self.add_function(self.report_dailySongs, 'Daily Songs', error_on_failure=False)
+        # self.add_function(self.report_genius, 'Genius Scrape', error_on_failure=False)
+        # self.add_function(self.report_dailySongs, 'Daily Songs', error_on_failure=False)
+        self.add_function(self.report_shazam, 'Shazam', error_on_failure=False)
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
