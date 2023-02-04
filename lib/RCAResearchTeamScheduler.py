@@ -42,4 +42,4 @@ class RCAResearchTeamScheduler(SchedulerBase):
 
     def test_build(self):
 
-        self.set('Wednesday', NielsenDailyUSPipeline)
+        self.setToday(NielsenDailyUSPipeline)
