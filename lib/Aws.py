@@ -52,3 +52,16 @@ class Aws:
 
             print(str(e))
             return False
+
+    def delete_file_s3(self, s3_fullfile: str):
+
+        if self.s3 is None:
+            raise Exception('Aws s3 client not connected, you must first call self.connect_s3()')
+
+        try:
+
+            self.s3.delete_object(Bucket=S3_BUCKET_NAME, Key=s3_fullfile)
+            print(f'INFO: Deleted {s3_fullfile} successfully')
+
+        except BaseException as e:
+            print(str(e))
