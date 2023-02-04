@@ -2,9 +2,11 @@ from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, REPORTS_FOLDER
 from .PipelineBase import PipelineBase
 from .functions import chunker, getSpotifyTrackDataFromSpotifyUsingIsrcTitleAndArtist
 from .Sftp import Sftp
+from .BinnedModel import BinnedModel
 from .Spotify import Spotify
 from .Fuzz import Fuzz
 from .Db import Db
+from .RapidApi import RapidApi
 from .functions import today
 from datetime import datetime, timedelta
 from zipfile import ZipFile
@@ -147,7 +149,16 @@ class NielsenDailyUSPipeline(PipelineBase):
             'nielsen_daily_audio': os.path.join(self.folders['exports'], f'nielsen_daily_songs_{formatted_date}.csv'),
             'shazam_by_market_streams': os.path.join(self.folders['exports'], f'shazam_by_market_streams_{formatted_date}.csv'),
             'shazam_by_market': os.path.join(self.folders['exports'], f'shazam_by_market_{formatted_date}.csv'),
-            'shazam_rank_by_country': os.path.join(self.folders['exports'], f'shazam_rank_by_country_{formatted_date}.csv')
+            'shazam_rank_by_country': os.path.join(self.folders['exports'], f'shazam_rank_by_country_{formatted_date}.csv'),
+            'spotify_artist_stat_growth': os.path.join(self.folders['exports'], f'spotify_artist_stat_growth_{formatted_date}.csv'),
+            'artist_8_week_growth': os.path.join(self.folders['exports'], f'artist_8_week_growth_{formatted_date}.csv'),
+            'song_8_week_growth': os.path.join(self.folders['exports'], f'song_8_week_growth_{formatted_date}.csv'),
+            'growing_genres': os.path.join(self.folders['exports'], f'growing_genres_{formatted_date}.csv'),
+            'nielsen_weekly_audio': os.path.join(self.folders['exports'], f'nielsen_weekly_audio_{formatted_date}.csv'),
+            'new_artists_in_genres_tw_streams': os.path.join(self.folders['exports'], f'new_artists_in_genres_tw_streams_{formatted_date}.csv'),
+            'sp_follower_growth': os.path.join(self.folders['exports'], f'sp_follower_growth_{formatted_date}.csv'),
+            'ig_follower_growth': os.path.join(self.folders['exports'], f'ig_follower_growth_{formatted_date}.csv'),
+            'tt_follower_growth': os.path.join(self.folders['exports'], f'tt_follower_growth_{formatted_date}.csv')
         }
 
     def downloadFiles(self):
@@ -313,7 +324,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         
         print('All checks passed!')
 
-    def findSignedByCopyrights(self, df: pd.DataFrame):
+    def findSignedByCopyrights(self, df):
 
         """
 
@@ -359,7 +370,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
      
-    def basicSignedCheck(self, df: pd.DataFrame):
+    def basicSignedCheck(self, df):
 
         """
             @param df('copyrights', 'signed', 'artist')
@@ -409,7 +420,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def cleanArtists(self, df: pd.DataFrame):
+    def cleanArtists(self, df):
         
         # Rename columns for consistency & database usage
         rename_columns = {
@@ -531,7 +542,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         return meta, streams
 
     # Apply another layer of detecting 'signed' with a running list of signed artists
-    def filterBySignedArtistsList(self, df: pd.DataFrame):
+    def filterBySignedArtistsList(self, df):
         
         # Read in the signed artists that are tracked
         artists_df = self.db.execute('select * from misc.signed_artists')
@@ -546,7 +557,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         
         return df
 
-    def prepareArtistData(self, df: pd.DataFrame):
+    def prepareArtistData(self, df):
         
         # Clean & standardize data
         meta, streams = self.cleanArtists(df)
@@ -722,7 +733,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         # Database updates
         self.artistsDbUpdates(meta, streams)
 
-    def filterSignedSongs(self, df: pd.DataFrame):
+    def filterSignedSongs(self, df):
         
         def filterSignedFilter(row, labels, labels_fuzz, artists):
         
@@ -774,7 +785,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         
         return df
 
-    def cleanSongs(self, df: pd.DataFrame):
+    def cleanSongs(self, df):
         
         # Rename the remaining columns for consistency and database usage
         renameable = {
@@ -900,7 +911,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         
         return meta, total, premium, ad_supported
 
-    def appendToSignedArtistList(self, df: pd.DataFrame):
+    def appendToSignedArtistList(self, df):
         
         # Get the signed songs from our dataset
         signed_df = df.loc[df['signed'] == True, ['artist']].reset_index(drop=True)
@@ -917,7 +928,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.db.big_insert(new_signed, 'misc.signed_artists')
         print(f'Inserted {new_signed.shape[0]} new signed artists to tracker...')
 
-    def prepareSongData(self, df: pd.DataFrame):
+    def prepareSongData(self, df):
         
         # Basic cleanup and separation of datasets
         meta, total, premium, ad_supported = self.cleanSongs(df)
@@ -1164,7 +1175,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         self.db.execute(string)
 
-    def getSpotifySongs(self, df: pd.DataFrame):
+    def getSpotifySongs(self, df):
 
         """
             Takes in a dataframe with columns:
@@ -1490,7 +1501,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         # Insert new spotify information
         self.db.big_insert(df, 'nielsen_song.spotify')
 
-    def bulkGetSpotifyArtistInfo(self, df: pd.DataFrame, spotify: Spotify) -> pd.DataFrame:
+    def bulkGetSpotifyArtistInfo(self, df, spotify: Spotify) -> pd.DataFrame:
 
         """
             Bulk add all the artists by spotify_artist_id
@@ -1525,7 +1536,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def getSpotifyArtistInfo(self, df: pd.DataFrame, spotify: Spotify) -> pd.DataFrame:
+    def getSpotifyArtistInfo(self, df, spotify: Spotify) -> pd.DataFrame:
 
         """
             Manually search artists who didn't have a spotify artist id
@@ -1584,7 +1595,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def getSpotifyPopularTrackId(self, df: pd.DataFrame, spotify: Spotify) -> pd.DataFrame:
+    def getSpotifyPopularTrackId(self, df, spotify: Spotify) -> pd.DataFrame:
 
         """
             Attach the ids of the most popular album / track.
@@ -1618,7 +1629,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def getSpotifyAlbumInfo(self, df: pd.DataFrame, spotify: Spotify) -> pd.DataFrame:
+    def getSpotifyAlbumInfo(self, df, spotify: Spotify) -> pd.DataFrame:
 
         """
             Takes the 'spotify_popular_track_id' column and attaches copyright info about that track
@@ -1734,36 +1745,43 @@ class NielsenDailyUSPipeline(PipelineBase):
             artist_id -> spotify_id
         """
 
-        # Create a connection to the reporting db
-        reporting_db = Db('reporting_db')
-        reporting_db.connect()
-
-        # First get spotify artist ids from our artist cache
         string = """
             select s.artist_id, s.spotify_artist_id, m.unified_artist_id
             from nielsen_artist.spotify s
             left join nielsen_artist.meta m on m.id = s.artist_id
             where s.spotify_artist_id is not null
                 and artist_id not in (select artist_id from nielsen_artist.cm_map)
-            limit 100
         """
         df = self.db.execute(string)
-        if df is None:
+
+        if df.empty:
             return
 
-        # Get the charmetric mapping
+        # First extract all the spotify artist ids and drop duplicates
+        spotify_artist_ids = df[['spotify_artist_id']].drop_duplicates(subset=['spotify_artist_id']).reset_index(drop=True)
+
+        reporting_db = Db('reporting_db')
+        reporting_db.connect()
+
         string = """
-            with temp as (
+            create temp table ids (
+                spotify_artist_id text
+            );
+        """
+        reporting_db.execute(string)
+        reporting_db.big_insert_redshift(spotify_artist_ids, 'ids')
+
+        string = """
+            with t as (
                 select
-                    cm_artist as target_id,
-                    spotify_artist_id as spotify_id
-                from chartmetric_raw.spotify_artist
-                where spotify_artist_id in %(spotify_ids)s
-            ), t as (
-                select temp.*, cm.account_id, cm.type
-                from temp
+                    ids.spotify_artist_id,
+                    sa.cm_artist as target_id,
+                    cm.account_id,
+                    cm.type
+                from ids
+                join chartmetric_raw.spotify_artist sa on ids.spotify_artist_id = sa.spotify_artist_id
                 left join chartmetric_raw.cm_url cm
-                    on cm.target_id = temp.target_id
+                    on cm.target_id = sa.cm_artist
                     and cm.target = 'cm_artist'
             ), instagram as (
                 select target_id, account_id as instagram_id
@@ -1796,7 +1814,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             select
                 t.target_id,
-                t.spotify_id as spotify_artist_id,
+                t.spotify_artist_id,
                 ig.instagram_id,
                 yt.youtube_id,
                 tt.tiktok_id,
@@ -1817,26 +1835,79 @@ class NielsenDailyUSPipeline(PipelineBase):
             left join gtrends gt on t.target_id = gt.target_id
             left join soundcloud sc on t.target_id = sc.target_id
             left join twitch tc on t.target_id = tc.target_id
-            left join chartmetric_raw.spotify_artist sa on t.spotify_id = sa.spotify_artist_id
+            left join chartmetric_raw.spotify_artist sa on t.spotify_artist_id = sa.spotify_artist_id
             group by
-                t.target_id, t.spotify_id,
+                t.target_id, t.spotify_artist_id,
                 sa.id,
                 instagram_id, youtube_id, tiktok_id,
                 shazam_id, twitter_id, genius_id, gtrends_id, soundcloud_id, twitch_id
         """
-        params = { 'spotify_ids': tuple(df['spotify_artist_id'].values) }
-        data = reporting_db.execute(string, params)
-        if data is None:
+        data = reporting_db.execute(string)
+        reporting_db.disconnect()
+
+        if data.empty:
             return
 
-        # Merge onto our database map
-        df = pd.merge(df, data, how='left')
+        # Clean the potentially int columns of the notorious .0
+        data = data.astype({
+            'target_id': 'str',
+            'spotify_id': 'str'
+        })
 
-        # Insert into our db
-        self.db.big_insert(df, 'nielsen_artist.cm_map')
+        data[['target_id', 'spotify_id']] = data[['target_id', 'spotify_id']].replace('.0', '', regex=True)
 
-        # Disconnect from the reporting db
-        reporting_db.disconnect()
+        # Merge back with original data
+        df = pd.merge(df, data, on='spotify_artist_id', how='left')
+
+        # Create temp table for the new ids we're going to insert
+        string = """
+            create temp table tmp_ids (
+                artist_id int,
+                spotify_artist_id text,
+                unified_artist_id text,
+                target_id text,
+                instagram_id text,
+                youtube_id text,
+                tiktok_id text,
+                shazam_id text,
+                twitter_id text,
+                genius_id text,
+                gtrends_id text,
+                soundcloud_id text,
+                twitch_id text,
+                spotify_id text
+            )
+        """
+        self.db.execute(string)
+        self.db.big_insert(df, 'tmp_ids')
+
+        # Upsert new ids
+        string = """
+            insert into nielsen_artist.cm_map (
+                artist_id, spotify_artist_id, unified_artist_id, target_id, instagram_id, youtube_id,
+                tiktok_id, shazam_id, twitter_id, genius_id, gtrends_id, soundcloud_id, twitch_id, spotify_id
+            )
+            select
+                artist_id, spotify_artist_id, unified_artist_id, target_id, instagram_id, youtube_id,
+                tiktok_id, shazam_id, twitter_id, genius_id, gtrends_id, soundcloud_id, twitch_id, spotify_id
+            from tmp_ids
+            on conflict (artist_id) do update
+            set
+                spotify_artist_id = excluded.spotify_artist_id,
+                unified_artist_id = excluded.unified_artist_id,
+                target_id = excluded.target_id,
+                instagram_id = excluded.instagram_id,
+                youtube_id = excluded.youtube_id,
+                tiktok_id = excluded.tiktok_id,
+                shazam_id = excluded.shazam_id,
+                twitter_id = excluded.twitter_id,
+                genius_id = excluded.genius_id,
+                gtrends_id = excluded.gtrends_id,
+                soundcloud_id = excluded.soundcloud_id,
+                twitch_id = excluded.twitch_id,
+                spotify_id = excluded.spotify_id
+        """
+        self.db.execute(string)
 
     def insertNewGenres(self):
 
@@ -2135,116 +2206,158 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         self.db.execute(string)
 
-    def recordGenreCharts(self):
+    def refreshCharts(self):
 
         """
-            Record where everyone sits in their genres.
+            Keep track of all the genres and artists and make records of new things that
+            enter these so that we can build notifications from them.
         """
 
         string = """
-            -- LTG
-            insert into nielsen_genres.chart_ltg_streams_history (artist_id, genre_id, num_positive_weeks, rnk)
+            create temp table cd as ( select value::date as cd from nielsen_meta where id = 1 );
+
+            -- Long term growth at the genre level
+            insert into nielsen_genres.ltg_chart (genre_id, num_positive_weeks, rnk, is_top_20, is_top_100, should_notify, last_appearance_in_top_20, last_appearance_in_top_100)
+            select
+                genre_id,
+                num_positive_weeks,
+                rnk,
+                is_top_20,
+                is_top_100,
+                case
+                    when should_notify + 1 > 7 then 0
+                    when should_notify > 0 or (is_top_20 and ( select cd from cd ) - last_appearance_in_top_20 >= interval '365 days') or (is_top_100 and ( select cd from cd ) - last_appearance_in_top_100 >= interval '365 days') then should_notify + 1
+                    else 0
+                end as should_notify,
+                case
+                    when is_top_20 is true then ( select cd from cd )
+                    else last_appearance_in_top_20
+                end as last_appearance_in_top_20,
+                case
+                    when is_top_100 is true then ( select cd from cd )
+                    else last_appearance_in_top_100
+                end as last_appearance_in_top_100
+            from (
+                select
+                    q.*,
+                    case
+                        when q.rnk < 21 then true
+                        else false
+                    end as is_top_20,
+                    case
+                        when q.rnk < 101 then true
+                        else false
+                    end as is_top_100,
+                    coalesce(c.should_notify, 0) as should_notify,
+                    coalesce(c.last_appearance_in_top_100, ( select cd from cd ) - interval '1000 days') as last_appearance_in_top_100,
+                    coalesce(c.last_appearance_in_top_20, ( select cd from cd ) - interval '1000 days') as last_appearance_in_top_20
+                from (
+                    select
+                        m.id as genre_id,
+                        coalesce(num_positive_weeks, -1) as num_positive_weeks,
+                        row_number() over (order by num_positive_weeks desc nulls last) as rnk
+                    from (
+                        select
+                            genre_id,
+                            sum(is_positive) as num_positive_weeks
+                        from (
+                            select
+                                genre_id,
+                                case
+                                    when streams > lag_streams then 1
+                                    else 0
+                                end as is_positive
+                            from (
+                                select *, lag(streams, 1) over (partition by genre_id order by weekly) as lag_streams
+                                from (
+                                    select
+                                        genre_id,
+                                        date_trunc('week', date) as weekly,
+                                        sum(streams) as streams
+                                    from (
+                                        select
+                                            s.genre_id,
+                                            date - ( select extract(dow from cd - interval '1 day')::int as number_of_days from cd ) as date,
+                                            streams
+                                        from nielsen_genres.streams s
+                                        where date > ( select cd from cd ) - interval '365 days'
+                                            and date < ( select cd from cd )
+                                    ) q
+                                    group by genre_id, weekly
+                                ) q
+                            ) q
+                        ) q
+                        group by genre_id
+                    ) q
+                    full outer join nielsen_genres.meta m on q.genre_id = m.id
+                ) q
+                left join nielsen_genres.ltg_chart c on q.genre_id = c.genre_id
+            ) q
+            on conflict (genre_id) do update
+            set
+                num_positive_weeks = excluded.num_positive_weeks,
+                rnk = excluded.rnk,
+                should_notify = excluded.should_notify,
+                is_top_20 = excluded.is_top_20,
+                is_top_100 = excluded.is_top_100,
+                last_appearance_in_top_20 = excluded.last_appearance_in_top_20,
+                last_appearance_in_top_100 = excluded.last_appearance_in_top_100;
+
+            -- Based on weekly streams by artist at the genre level
+            insert into nielsen_genres.artist_tw_chart (artist_id, genre_id, tw_streams, rnk, is_top_10, is_top_50, should_notify, last_appearance_in_top_10, last_appearance_in_top_50)
             select
                 artist_id,
                 genre_id,
-                num_positive_weeks,
-                row_number() over (partition by genre_id order by num_positive_weeks desc, tw_streams desc) as rnk
+                tw_streams,
+                rnk,
+                is_top_10,
+                is_top_50,
+                case
+                    when should_notify + 1 > 3 then 0
+                    when should_notify > 0 or (is_top_10 and ( select cd from cd ) - last_appearance_in_top_10 >= interval '365 days') or (is_top_50 and ( select cd from cd ) - last_appearance_in_top_50 >= interval '365 days') then should_notify + 1
+                    else 0
+                end as should_notify,
+                case
+                    when is_top_10 is true then ( select cd from cd )
+                    else last_appearance_in_top_10
+                end as last_appearance_in_top_10,
+                case
+                    when is_top_50 is true then ( select cd from cd )
+                    else last_appearance_in_top_50
+                end as last_appearance_in_top_50
             from (
                 select
-                    genre_id,
-                    artist_id,
-                    tw_streams,
-                    sum(is_greater) as num_positive_weeks
-                from (
-                    select *,
-                        case
-                            when streams > streams_prev then 1
-                            else 0
-                        end as is_greater
-                    from (
-                        select *, lag(streams, 1) over (partition by artist_id order by weekly) as streams_prev
-                        from (
-                            select
-                                a.genre_id,
-                                a.artist_id,
-                                st.tw_streams,
-                                date_trunc('week', s.date) as weekly,
-                                sum(s.streams) as streams
-                            from nielsen_genres.artists a
-                            left join nielsen_artist.streams s on a.artist_id = s.artist_id
-                            join nielsen_artist.stats st on a.artist_id = st.artist_id
-                            where st.tw_streams > 30000
-                            group by a.genre_id, a.artist_id, st.tw_streams, weekly
-                        ) q
-                    ) q
-                ) q
-                group by genre_id, artist_id, tw_streams
+                    a.artist_id,
+                    a.genre_id,
+                    m.tw_streams,
+                    a.rnk,
+                    case
+                        when a.rnk < 11 then true
+                        else false
+                    end as is_top_10,
+                    case
+                        when a.rnk < 51 then true
+                        else false
+                    end as is_top_50,
+                    coalesce(c.should_notify, 0) as should_notify,
+                    coalesce(c.last_appearance_in_top_50, ( select cd from cd ) - interval '1000 days') as last_appearance_in_top_50,
+                    coalesce(c.last_appearance_in_top_10, ( select cd from cd ) - interval '1000 days') as last_appearance_in_top_10
+                from nielsen_genres.artists a
+                left join nielsen_artist.__artist m on a.artist_id = m.artist_id
+                left join nielsen_genres.artist_tw_chart c on a.artist_id = c.artist_id and a.genre_id = c.genre_id
             ) q
-            order by num_positive_weeks desc;
-            -- End LTG
+            on conflict (artist_id, genre_id) do update
+            set
+                tw_streams = excluded.tw_streams,
+                rnk = excluded.rnk,
+                should_notify = excluded.should_notify,
+                is_top_10 = excluded.is_top_10,
+                is_top_50 = excluded.is_top_50,
+                last_appearance_in_top_10 = excluded.last_appearance_in_top_10,
+                last_appearance_in_top_50 = excluded.last_appearance_in_top_50;
 
-            -- LTG New
-            with recent_dates as (
-                select distinct date
-                from nielsen_genres.chart_ltg_streams_history
-                order by date desc
-                limit 2
-            ), recent_data as (
-                select *
-                from nielsen_genres.chart_ltg_streams_history
-                where date = (select date from recent_dates order by date desc limit 1)
-            ), offset_data as (
-                select *
-                from nielsen_genres.chart_ltg_streams_history
-                where date = (select date from recent_dates order by date desc limit 1 offset 1)
-            )
-
-            insert into nielsen_genres.chart_ltg_streams_new(genre_id, artist_id, rnk)
-            select rd.genre_id, rd.artist_id, rd.rnk
-            from recent_data rd
-            full outer join offset_data od
-                on rd.artist_id = od.artist_id
-                and rd.genre_id = od.genre_id
-            where od.artist_id is null
-                and rd.rnk < 50;
-            -- End LTG New
-            
-            -- TW
-            insert into nielsen_genres.chart_tw_streams_history (artist_id, genre_id, rnk)
-            select
-                a.artist_id,
-                a.genre_id,
-                row_number() over (partition by genre order by st.tw_streams desc nulls last) as rnk
-            from nielsen_genres.artists a
-            left join nielsen_artist.meta m on m.id = a.artist_id
-            join nielsen_artist.stats st on a.artist_id = st.artist_id;
-            -- End TW
-
-            -- TW New
-            with recent_dates as (
-                select distinct date
-                from nielsen_genres.chart_tw_streams_history
-                order by date desc
-                limit 2
-            ), recent_data as (
-                select *
-                from nielsen_genres.chart_tw_streams_history
-                where date = (select date from recent_dates order by date desc limit 1)
-            ), offset_data as (
-                select *
-                from nielsen_genres.chart_tw_streams_history
-                where date = (select date from recent_dates order by date desc limit 1 offset 1)
-            )
-
-            insert into nielsen_genres.chart_tw_streams_new(genre_id, artist_id, rnk)
-            select rd.genre_id, rd.artist_id, rd.rnk
-            from recent_data rd
-            full outer join offset_data od
-                on rd.artist_id = od.artist_id
-                and rd.genre_id = od.genre_id
-            where od.artist_id is null
-                and rd.rnk < 50;
-            -- End TW New
+            -- Drop the temporary date table
+            drop table cd;
         """
         self.db.execute(string)
 
@@ -2263,6 +2376,590 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         self.db.execute(string)
 
+    def refreshNotifications(self):
+
+        string = """
+            delete from graphitti.notifications;
+
+            -- Genre long term growth
+            insert into graphitti.notifications (user_id, n_type, meta)
+            select
+                user_id,
+                n_type,
+                json_build_object (
+                    'genre_id', genre_id,
+                    'genre', genre,
+                    'sparkline', sparkline,
+                    'tw_streams', tw_streams
+                ) as meta
+            from (
+                select
+                    u.id as user_id,
+                    c.genre_id,
+                    'new_genre_ltg' as n_type,
+                    m.genre,
+                    st.tw_streams,
+                    json_agg (
+                        json_build_object (
+                            'date', spk.date,
+                            'value', spk.streams
+                        )
+                    ) as sparkline
+                from graphitti.users u
+                cross join nielsen_genres.ltg_chart c
+                left join nielsen_genres.sparklines spk on c.genre_id = spk.genre_id
+                left join nielsen_genres.meta m on c.genre_id = m.id
+                left join nielsen_genres.__stats st on c.genre_id = st.genre_id
+                where should_notify::bool is true
+                group by u.id, c.genre_id, m.genre, st.tw_streams
+            ) q;
+        """
+        self.db.execute(string)
+
+    def updateArtistSocialCharts(self):
+
+        def get_ids(df, col):
+
+            # First drop duplicates
+            df = df.drop_duplicates(subset=[col]).reset_index(drop=True)
+
+            # Remove null values and empty strings
+            mask = (
+                (~df[col].isnull()) &
+                (df[col].str.len() > 0)
+            )
+
+            df = df[mask].reset_index(drop=True)
+
+            return df[[col]]
+
+        def updateInstagramChart(df: pd.DataFrame):
+
+            # Get the instagram data from reporting db
+            instagram_ids = get_ids(df, 'instagram_id')
+
+            string = """
+                create temp table tmp_instagram_ids (
+                    instagram_id text
+                );
+            """
+            reporting_db.execute(string)
+            reporting_db.big_insert_redshift(instagram_ids, 'tmp_instagram_ids')
+
+            string = """
+                select
+                    account_id as instagram_id,
+                    timestp as date,
+                    followers as ig_followers
+                from tmp_instagram_ids ig
+                join chartmetric_raw.instagram_stat igs on ig.instagram_id = igs.account_id
+                where date > dateadd('days', -16, current_date)
+            """
+            xdf = reporting_db.execute(string)
+
+            string = 'drop table tmp_instagram_ids'
+            reporting_db.execute(string)
+
+            # Some preprocessing so that we can work with a clean dataset during our actual analysis
+
+            # Remove null values in followers column
+            xdf = xdf[~xdf['ig_followers'].isnull()].reset_index(drop=True)
+
+            # Clean types
+            xdf['date'] = pd.to_datetime(xdf['date'])
+            xdf = xdf.astype({
+                'instagram_id': 'str',
+                'ig_followers': 'int'
+            })
+
+            # Sometimes chartmetric has duplicates for certain days, so let's drop those
+            xdf = xdf.drop_duplicates(subset=['instagram_id', 'date']).reset_index(drop=True)
+
+            # We're going to add a new id as an integer column because ints work faster with grouping
+            ids = xdf.drop_duplicates(subset=['instagram_id']).reset_index(drop=True)
+            ids = ids.reset_index().rename(columns={ 'index': 'instagram_id_int' }).drop(columns=['date', 'ig_followers'])
+            xdf = pd.merge(xdf, ids, on='instagram_id', how='left')
+
+            # Interpolate missing data
+            xdf = xdf.set_index('date')
+            xdf = xdf.groupby('instagram_id_int').resample('D').ig_followers.mean().reset_index()
+            xdf['ig_followers'] = xdf['ig_followers'].interpolate()
+
+            # Add back the original id
+            xdf = pd.merge(xdf, ids, on='instagram_id_int', how='left')
+
+            # Remove anyone with less than min_ig_followers (could use the groupby method but this is faster for this type of computation)
+            min_ig_followers = 5000
+            ig_followers = xdf.sort_values(by=['instagram_id_int', 'date'], ascending=False).drop_duplicates(subset='instagram_id_int', keep='first').reset_index(drop=True)
+            ig_followers = ig_followers[ig_followers['ig_followers'] > min_ig_followers].reset_index(drop=True)
+            xdf = pd.merge(xdf, ig_followers[['instagram_id_int']], how='inner')
+
+            # Filter out anyone without at least 4 days of available data
+            xdf = xdf.groupby('instagram_id_int').filter(lambda x: len(x) > 3)
+
+            # Add the max date per group as a column (because we're going to filter out any points
+            # that aren't the most recent datapoint & the datapoint the week prior)
+            max_date = xdf.groupby('instagram_id_int').date.max().rename('max_date').reset_index()
+            xdf = pd.merge(xdf, max_date, on='instagram_id_int')
+
+            # Drop any rows that aren't the most recent 2 weeks
+            mask = (
+                (xdf['date'] == xdf['max_date']) | \
+                (xdf['date'] == xdf['max_date'] - timedelta(7))
+            )
+            xdf = xdf[mask].drop(columns=['max_date']).reset_index(drop=True)
+
+            # Drop anything that doesn't have at least 2 rows because that means that it didn't have
+            # any data from the previous week so we'll just disregard it
+            xdf = xdf.groupby('instagram_id_int').filter(lambda x: len(x) == 2)
+
+            # Get the follower increase from the previous week
+            xdf = xdf.sort_values(by=['instagram_id_int', 'date']).reset_index(drop=True)
+            xdf['gain'] = xdf.groupby('instagram_id_int').ig_followers.diff()
+            xdf = xdf[~xdf['gain'].isnull()].drop(columns=['date']).reset_index(drop=True)
+
+            # Apply our instagram model
+            model = BinnedModel('ig_gain_model')
+            xdf[['mean', 'std', 'z-score']] = xdf.apply(lambda x: pd.Series(model.fit(x.ig_followers, x.gain)), axis=1)
+
+            # Remove anything that isn't at least +2std above mean and sort by z score
+            xdf = xdf[xdf['gain'] > xdf['mean'] + xdf['std'] * 2].sort_values(by='z-score', ascending=False).reset_index(drop=True)
+
+            # Document prep
+
+            # Drop/rename columns
+            xdf.drop(columns=['mean', 'std', 'instagram_id_int'], inplace=True)
+            xdf.rename(columns={ 'z-score': 'ig_growth_score', 'gain': 'ig_followers_gained' }, inplace=True)
+
+            # Add the metadata back onto the dataframe
+            # Only keep the instagram ids of the artist_id reference that has the most tw streams because that's likely the one that we want to match to
+            metadata = df.sort_values(by=['instagram_id', 'tw_streams'], ascending=False).drop_duplicates(subset=['instagram_id'], keep='first').reset_index(drop=True)
+            xdf = pd.merge(xdf, metadata, on='instagram_id', how='left')
+
+            # Round these columns
+            xdf['ig_followers'] = xdf['ig_followers'].astype(int)
+            xdf['ig_followers_gained'] = xdf['ig_followers_gained'].astype(int)
+
+            # Organize
+            xdf = xdf[['artist_id', 'instagram_id', 'artist', 'ig_followers', 'ig_followers_gained', 'ig_growth_score', 'tw_streams', 'lw_streams', 'pct_chg']]
+
+            # Upload the data to our db
+            # First match to the existing chart to find anything that's new
+            string = """
+                create temp table tmp_ig_follower_growth (
+                    artist_id bigserial,
+                    instagram_id text,
+                    artist text,
+                    ig_followers int,
+                    ig_followers_gained int,
+                    ig_growth_score float,
+                    tw_streams int,
+                    lw_streams int,
+                    pct_chg float
+                );
+            """
+            self.db.execute(string)
+            self.db.big_insert(xdf, 'tmp_ig_follower_growth')
+
+            string = """
+                create temp table tmp_data as (
+                    select
+                        t.artist_id,
+                        t.instagram_id,
+                        t.artist,
+                        t.ig_followers,
+                        t.ig_followers_gained,
+                        t.ig_growth_score,
+                        t.tw_streams,
+                        t.lw_streams,
+                        t.pct_chg,
+                        case
+                            when g.artist_id is null then true
+                            else false
+                        end as is_new
+                    from tmp_ig_follower_growth t
+                    left join social_charts.ig_follower_growth g on t.artist_id = g.artist_id
+                );
+
+                delete from social_charts.ig_follower_growth;
+
+                insert into social_charts.ig_follower_growth (artist_id, instagram_id, artist, ig_followers, ig_followers_gained, ig_growth_score, tw_streams, lw_streams, pct_chg, is_new)
+                select
+                    artist_id,
+                    instagram_id,
+                    artist,
+                    ig_followers,
+                    ig_followers_gained,
+                    ig_growth_score,
+                    tw_streams,
+                    lw_streams,
+                    pct_chg,
+                    is_new
+                from tmp_data;
+
+                drop table tmp_data;
+                drop table tmp_ig_follower_growth;
+            """
+            self.db.execute(string)
+
+        def updateSpotifyChart(df: pd.DataFrame):
+
+            # Get the spotify data from reporting db
+            spotify_ids = get_ids(df, 'spotify_id')
+
+            # Copy ids into a temp table in the redshift db
+            string = """
+                create temp table tmp_spotify_ids (
+                    spotify_id text
+                );
+            """
+            reporting_db.execute(string)
+            reporting_db.big_insert_redshift(spotify_ids, 'tmp_spotify_ids')
+
+            # Join and select instagram data from redshift db
+            string = """
+                select
+                    spotify_artist as spotify_id,
+                    timestp as date,
+                    followers as sp_followers
+                from tmp_spotify_ids tsi
+                join chartmetric_raw.spotify_artist sa on tsi.spotify_id = sa.id
+                join chartmetric_raw.spotify_artist_stat sas on tsi.spotify_id = sas.spotify_artist
+                where sa.followers_latest > 2000
+                    and date > dateadd('days', -16, current_date)
+            """
+            xdf = reporting_db.execute(string)
+
+            # Drop the temporary table to stay clean
+            string = 'drop table tmp_spotify_ids'
+            reporting_db.execute(string)
+
+            # Some preprocessing so that we can work with a clean dataset during our actual analysis
+
+            # Remove null values in followers column
+            xdf = xdf[~xdf['sp_followers'].isnull()].reset_index(drop=True)
+
+            # Clean types
+            xdf['date'] = pd.to_datetime(xdf['date'])
+            xdf = xdf.astype({
+                'spotify_id': 'int',
+                'sp_followers': 'int'
+            })
+
+            # Sometimes chartmetric has duplicates for certain days, so let's drop those
+            xdf = xdf.drop_duplicates(subset=['spotify_id', 'date']).reset_index(drop=True)
+
+            # Filter out anyone without at least 5 days of available data
+            xdf = xdf.groupby('spotify_id').filter(lambda x: len(x) > 4)
+
+            # Interpolate missing data
+            xdf = xdf.set_index('date')
+            xdf = xdf.groupby('spotify_id').resample('D').sp_followers.mean().reset_index()
+            xdf['sp_followers'] = xdf['sp_followers'].interpolate()
+
+            # Add the max date per group as a column (because we're going to filter out any points
+            # that aren't the most recent datapoint & the datapoint the week prior)
+            max_date = xdf.groupby('spotify_id').date.max().rename('max_date').reset_index()
+            xdf = pd.merge(xdf, max_date, on='spotify_id')
+
+            # Drop any rows that aren't the most recent 2 weeks
+            mask = (
+                (xdf['date'] == xdf['max_date']) | \
+                (xdf['date'] == xdf['max_date'] - timedelta(7))
+            )
+            xdf = xdf[mask].drop(columns=['max_date']).reset_index(drop=True)
+
+            # Drop anything that doesn't have at least 2 rows because that means that it didn't have
+            # any data from the previous week so we'll just disregard it
+            xdf = xdf.groupby('spotify_id').filter(lambda x: len(x) == 2)
+
+            # Get the follower increase from the previous week
+            xdf = xdf.sort_values(by=['spotify_id', 'date']).reset_index(drop=True)
+            xdf['gain'] = xdf.groupby('spotify_id').sp_followers.diff()
+            xdf = xdf[~xdf['gain'].isnull()].drop(columns=['date']).reset_index(drop=True)
+
+            # Get and apply our model
+            model = BinnedModel('spotify_gain_model')
+            xdf[['mean', 'std', 'z-score']] = xdf.apply(lambda x: pd.Series(model.fit(x.sp_followers, x.gain)), axis=1)
+
+            # Remove anything that isn't at least +2.5std above mean and sort by z score
+            # This is a slightly higher threshold because we have a much wider net because we have a lot more spotify ids
+            xdf = xdf[xdf['gain'] > xdf['mean'] + xdf['std'] * 2.5].sort_values(by='z-score', ascending=False).reset_index(drop=True)
+
+            # Drop/rename columns
+            xdf.drop(columns=['mean', 'std'], inplace=True)
+            xdf.rename(columns={ 'z-score': 'sp_growth_score', 'gain': 'sp_followers_gained' }, inplace=True)
+
+            # Add the metadata back onto the dataframe
+            # Only keep the spotify ids of the artist_id reference that has the most tw streams because that's likely the one that we want to match to
+            metadata = df.sort_values(by=['spotify_id', 'tw_streams'], ascending=False) \
+                .drop_duplicates(subset=['spotify_id'], keep='first') \
+                .reset_index(drop=True)
+            xdf = xdf.astype({ 'spotify_id': 'str' }) # need to do this to match merging types
+            xdf = pd.merge(xdf, metadata, on='spotify_id', how='left')
+
+            # Round these columns
+            xdf['sp_followers'] = xdf['sp_followers'].astype(int)
+            xdf['sp_followers_gained'] = xdf['sp_followers_gained'].astype(int)
+
+            # Organize
+            xdf = xdf[['artist_id', 'spotify_id', 'artist', 'sp_followers', 'sp_followers_gained', 'sp_growth_score', 'tw_streams', 'lw_streams', 'pct_chg']]
+
+            # Upload the data to our db
+            # First match to the existing chart to find anything that's new
+            string = """
+                create temp table tmp_sp_follower_growth (
+                    artist_id bigserial,
+                    spotify_id text,
+                    artist text,
+                    sp_followers int,
+                    sp_followers_gained int,
+                    sp_growth_score float,
+                    tw_streams int,
+                    lw_streams int,
+                    pct_chg float
+                );
+            """
+            self.db.execute(string)
+            self.db.big_insert(xdf, 'tmp_sp_follower_growth')
+
+            string = """
+                create temp table tmp_data as (
+                    select
+                        t.artist_id,
+                        t.spotify_id,
+                        t.artist,
+                        t.sp_followers,
+                        t.sp_followers_gained,
+                        t.sp_growth_score,
+                        t.tw_streams,
+                        t.lw_streams,
+                        t.pct_chg,
+                        case
+                            when g.artist_id is null then true
+                            else false
+                        end as is_new
+                    from tmp_sp_follower_growth t
+                    left join social_charts.sp_follower_growth g on t.artist_id = g.artist_id
+                );
+
+                delete from social_charts.sp_follower_growth;
+
+                insert into social_charts.sp_follower_growth (artist_id, spotify_id, artist, sp_followers, sp_followers_gained, sp_growth_score, tw_streams, lw_streams, pct_chg, is_new)
+                select
+                    artist_id,
+                    spotify_id,
+                    artist,
+                    sp_followers,
+                    sp_followers_gained,
+                    sp_growth_score,
+                    tw_streams,
+                    lw_streams,
+                    pct_chg,
+                    is_new
+                from tmp_data;
+
+                drop table tmp_data;
+                drop table tmp_sp_follower_growth;
+            """
+            self.db.execute(string)
+        
+        def updateTiktokChart(df: pd.DataFrame):
+
+            # Get the instagram data from reporting db
+            tiktok_ids = get_ids(df, 'tiktok_id')
+
+            # Copy ids into a temp table in the redshift db
+            string = """
+                create temp table tmp_tiktok_ids (
+                    tiktok_id text
+                );
+            """
+            reporting_db.execute(string)
+            reporting_db.big_insert_redshift(tiktok_ids, 'tmp_tiktok_ids')
+
+            # Join and select instagram data from redshift db
+            string = """
+                select
+                    tu.user_id as tiktok_id,
+                    timestp as date,
+                    followers as tt_followers
+                from tmp_tiktok_ids t
+                join chartmetric_raw.tiktok_user tu on t.tiktok_id = tu.user_id
+                join chartmetric_raw.tiktok_user_stat tus on tu.id = tus.tiktok_user
+                where tu.followers_latest > 1000
+                    and tus.followers != 0
+                    and date > dateadd('days', -21, current_date)
+            """
+            xdf = reporting_db.execute(string)
+
+            # Drop the temporary table to stay clean
+            string = 'drop table tmp_tiktok_ids'
+            reporting_db.execute(string)
+
+            # Some preprocessing so that we can work with a clean dataset during our actual analysis
+
+            # Remove null values in followers column
+            xdf = xdf[~xdf['tt_followers'].isnull()].reset_index(drop=True)
+
+            # Clean types
+            xdf['date'] = pd.to_datetime(xdf['date'])
+            xdf = xdf.astype({
+                'tiktok_id': 'int',
+                'tt_followers': 'int'
+            })
+
+            # Sometimes chartmetric has duplicates for certain days, so let's drop those
+            xdf = xdf.drop_duplicates(subset=['tiktok_id', 'date']).reset_index(drop=True)
+
+            # Filter out anyone without at least 5 days of available data
+            xdf = xdf.groupby('tiktok_id').filter(lambda x: len(x) > 4)
+
+            # Interpolate missing data
+            xdf = xdf.set_index('date')
+            xdf = xdf.groupby('tiktok_id').resample('D').tt_followers.mean().reset_index()
+            xdf['tt_followers'] = xdf['tt_followers'].interpolate()
+
+            # Add the max date per group as a column (because we're going to filter out any points
+            # that aren't the most recent datapoint & the datapoint the week prior)
+            max_date = xdf.groupby('tiktok_id').date.max().rename('max_date').reset_index()
+            xdf = pd.merge(xdf, max_date, on='tiktok_id')
+
+            # Drop any rows that aren't the most recent 2 weeks
+            mask = (
+                (xdf['date'] == xdf['max_date']) | \
+                (xdf['date'] == xdf['max_date'] - timedelta(7))
+            )
+            xdf = xdf[mask].drop(columns=['max_date']).reset_index(drop=True)
+
+            # Drop anything that doesn't have at least 2 rows because that means that it didn't have
+            # any data from the previous week so we'll just disregard it
+            xdf = xdf.groupby('tiktok_id').filter(lambda x: len(x) == 2)
+
+            # Get the follower increase from the previous week
+            xdf = xdf.sort_values(by=['tiktok_id', 'date']).reset_index(drop=True)
+            xdf['gain'] = xdf.groupby('tiktok_id').tt_followers.diff()
+            xdf = xdf[~xdf['gain'].isnull()].drop(columns=['date']).reset_index(drop=True)
+
+            # Get and apply our model
+            model = BinnedModel('tt_gain_model')
+            xdf[['mean', 'std', 'z-score']] = xdf.apply(lambda x: pd.Series(model.fit(x.tt_followers, x.gain)), axis=1)
+
+            # Remove anything that isn't at least +2std above mean and sort by z score
+            # This is a slightly higher threshold because we have a much wider net because we have a lot more tiktok ids
+            xdf = xdf[xdf['gain'] > xdf['mean'] + xdf['std'] * 2].sort_values(by='z-score', ascending=False).reset_index(drop=True)
+
+            # Drop/rename columns
+            xdf.drop(columns=['mean', 'std'], inplace=True)
+            xdf.rename(columns={ 'z-score': 'tt_growth_score', 'gain': 'tt_followers_gained' }, inplace=True)
+
+            # Add the metadata back onto the dataframe
+            # Only keep the tiktok ids of the artist_id reference that has the most tw streams because that's likely the one that we want to match to
+            metadata = df.sort_values(by=['tiktok_id', 'tw_streams'], ascending=False) \
+                .drop_duplicates(subset=['tiktok_id'], keep='first') \
+                .reset_index(drop=True)
+            xdf = xdf.astype({ 'tiktok_id': 'str' }) # need to do this to match merging types
+            xdf = pd.merge(xdf, metadata, on='tiktok_id', how='left')
+
+            # Round these columns
+            xdf['tt_followers'] = xdf['tt_followers'].astype(int)
+            xdf['tt_followers_gained'] = xdf['tt_followers_gained'].astype(int)
+
+            # Organize
+            xdf = xdf[['artist_id', 'tiktok_id', 'artist', 'tt_followers', 'tt_followers_gained', 'tt_growth_score', 'tw_streams', 'lw_streams', 'pct_chg']]
+        
+            # Upload the data to our db
+            # First match to the existing chart to find anything that's new
+            string = """
+                create temp table tmp_tt_follower_growth (
+                    artist_id bigserial,
+                    tiktok_id text,
+                    artist text,
+                    tt_followers int,
+                    tt_followers_gained int,
+                    tt_growth_score float,
+                    tw_streams int,
+                    lw_streams int,
+                    pct_chg float
+                );
+            """
+            self.db.execute(string)
+            self.db.big_insert(xdf, 'tmp_tt_follower_growth')
+
+            string = """
+                create temp table tmp_data as (
+                    select
+                        t.artist_id,
+                        t.tiktok_id,
+                        t.artist,
+                        t.tt_followers,
+                        t.tt_followers_gained,
+                        t.tt_growth_score,
+                        t.tw_streams,
+                        t.lw_streams,
+                        t.pct_chg,
+                        case
+                            when g.artist_id is null then true
+                            else false
+                        end as is_new
+                    from tmp_tt_follower_growth t
+                    left join social_charts.tt_follower_growth g on t.artist_id = g.artist_id
+                );
+
+                delete from social_charts.tt_follower_growth;
+
+                insert into social_charts.tt_follower_growth (artist_id, tiktok_id, artist, tt_followers, tt_followers_gained, tt_growth_score, tw_streams, lw_streams, pct_chg, is_new)
+                select
+                    artist_id,
+                    tiktok_id,
+                    artist,
+                    tt_followers,
+                    tt_followers_gained,
+                    tt_growth_score,
+                    tw_streams,
+                    lw_streams,
+                    pct_chg,
+                    is_new
+                from tmp_data;
+
+                drop table tmp_data;
+                drop table tmp_tt_follower_growth;
+            """
+            self.db.execute(string)
+        
+        string = """
+            select
+                m.artist_id,
+                m.artist,
+                m.tw_streams,
+                coalesce(st.lw_streams, 0) as lw_streams,
+                m.pct_chg,
+                cm.youtube_id,
+                cm.tiktok_id,
+                cm.spotify_id,
+                cm.instagram_id
+            from nielsen_artist.__artist m
+            left join nielsen_artist.cm_map cm on m.artist_id = cm.artist_id
+            left join nielsen_artist.__stats st on m.artist_id = st.artist_id
+            where signed is false
+                and (
+                    cm.youtube_id is not null or
+                    cm.tiktok_id is not null or
+                    cm.spotify_id is not null or
+                    cm.instagram_id is not null
+                )
+        """
+        df = self.db.execute(string)
+
+        reporting_db = Db('reporting_db')
+        reporting_db.connect()
+
+        updateTiktokChart(df)
+        updateSpotifyChart(df)
+        updateInstagramChart(df)
+
+        reporting_db.disconnect()
+    
     def updateSpotifyCharts(self):
 
         def get_type(category):
@@ -2732,44 +3429,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         df = pd.merge(df, ids, on='genius_id', how='left')
 
-        string = """
-            select
-                distinct on (isrc)
-                song_id::text,
-                isrc,
-                coalesce(signed, false) as signed,
-                coalesce(copyrights, '') as copyrights,
-                coalesce(tw_streams, 0) as tw_streams,
-                coalesce(lw_streams, 0) as lw_streams,
-                coalesce(pct_chg, 0) as pct_chg
-            from (
-                select
-                    sp.song_id,
-                    sp.isrc,
-                    rr.signed,
-                    sp.copyrights,
-                    st.tw_streams,
-                    st.lw_streams,
-                    st.pct_chg
-                from nielsen_song.spotify sp
-                left join nielsen_song.reports_recent rr on sp.song_id = rr.song_id
-                left join nielsen_song.stats st on sp.song_id = st.song_id
-                where isrc in %(isrcs)s
-                union all
-                select
-                    null as song_id,
-                    sp.isrc,
-                    false as signed,
-                    copyrights,
-                    0 as tw_streams,
-                    0 as lw_streams,
-                    0 as pct_chg
-                from nielsen_song.spotify_extra sp
-                where isrc in %(isrcs)s
-            ) q
-        """
-        params = { 'isrcs': tuple(df[~df['isrc'].isnull()].isrc.unique()) }
-        existing_isrcs = self.db.execute(string, params)
+        existing_isrcs = self.getExistingSpotifySongInfoByIsrc(df.isrc.values)
 
         # Add the spotify and extra data to genius data
         df = pd.merge(df, existing_isrcs, on='isrc', how='left')
@@ -3004,7 +3664,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         isrcs = pd.DataFrame({ 'isrc': isrcs })
 
         # Drop any null values, empty strings & duplicates
-        isrcs = isrcs[(~isrcs['isrc'].isnull()) & (isrcs['isrc'] != '')][['isrc']].drop_duplicates(subset=['isrc']).reset_index(drop=True)
+        isrcs = isrcs[(~isrcs['isrc'].isnull()) & (isrcs['isrc'] != '')].drop_duplicates(subset=['isrc']).reset_index(drop=True)
 
         # Create temp table for merge matching, we know this technique...
         string = """
@@ -3018,29 +3678,48 @@ class NielsenDailyUSPipeline(PipelineBase):
         # Select the data from our tables using merge matching
         # Select data from both nielsen_song.spotify & nielsen_song.spotify_extra
         string = """
-            select
-                sp.song_id,
-                sp.isrc,
-                rr.signed,
-                sp.copyrights,
-                st.tw_streams,
-                st.lw_streams,
-                st.pct_chg
-            from tmp_isrcs ti
-            join nielsen_song.spotify sp on ti.isrc = sp.isrc
-            left join nielsen_song.__reports_recent rr on sp.song_id = rr.song_id
-            left join nielsen_song.__stats st on sp.song_id = st.song_id
+            with sp as (
+                select
+                    sp.song_id,
+                    sp.isrc,
+                    coalesce(rr.signed, false) as signed,
+                    sp.copyrights,
+                    st.tw_streams,
+                    st.lw_streams,
+                    st.pct_chg
+                from tmp_isrcs ti
+                join nielsen_song.spotify sp on ti.isrc = sp.isrc
+                left join nielsen_song.__reports_recent rr on sp.song_id = rr.song_id
+                left join nielsen_song.__stats st on sp.song_id = st.song_id
+            ), unfound_isrcs as (
+                select isrc
+                from (
+                    select
+                        ti.isrc,
+                        case
+                            when sp.isrc is null then false
+                            else true
+                        end as is_found
+                    from tmp_isrcs ti
+                    left join sp on ti.isrc = sp.isrc
+                ) q
+                where is_found is false
+            ), sp_extra as (
+                select
+                    null::bigint as song_id,
+                    spe.isrc,
+                    false as signed,
+                    copyrights,
+                    null::bigint as tw_streams,
+                    null::bigint as lw_streams,
+                    null::float as pct_chg
+                from unfound_isrcs ufi
+                join nielsen_song.spotify_extra spe on ufi.isrc = spe.isrc
+            )
+
+            select * from sp
             union all
-            select
-                null as song_id,
-                sp.isrc,
-                false as signed,
-                copyrights,
-                null as tw_streams,
-                null as lw_streams,
-                null as pct_chg
-            from tmp_isrcs ti
-            join nielsen_song.spotify_extra sp on ti.isrc = sp.isrc
+            select * from sp_extra
         """
         existing_isrcs = self.db.execute(string)
 
@@ -3049,9 +3728,69 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.db.execute(string)
 
         # Lastly, we can drop duplicate rows
-        existing_isrcs = existing_isrcs.drop_duplicates(subset=['isrc']).reset_index(drop=True)
+        # But first we want to sort it by tw_streams, because we may have found 2 songs with the same
+        # isrcs, and we want to keep the one with higher streaming volume because that's likely the one
+        # we're looking for
+        existing_isrcs = existing_isrcs.sort_values(by='tw_streams', ascending=False).reset_index(drop=True)
+        existing_isrcs = existing_isrcs.drop_duplicates(subset=['isrc'], keep='first').reset_index(drop=True)
 
         return existing_isrcs
+    
+    def getExistingSpotifyArtistInfoBySpotifyArtistId(self, spotify_artist_ids):
+
+        """
+            @param spotify_artist_ids | array[str | None]
+
+            Pass an array of spotify artist ids and this function will do its best to match them
+            to the existing cached spotify data in our database. It will return you a dataframe of
+            that data.
+
+            @returns df(spotify_artist_id, artist_id, signed, tw_streams, lw_streams, pct_chg, copyrights)
+        """
+
+        # Convert the array to a dataframe for easy data cleanup and handling
+        spotify_artist_ids = pd.DataFrame({ 'spotify_artist_id': spotify_artist_ids })
+
+        # Drop any null values, empty strings & duplicates
+        m1 = ~spotify_artist_ids['spotify_artist_id'].isnull()
+        m2 = spotify_artist_ids['spotify_artist_id'] != ''
+        spotify_artist_ids = spotify_artist_ids[m1 & m2]
+        spotify_artist_ids = spotify_artist_ids.drop_duplicates(subset=['spotify_artist_id']).reset_index(drop=True)
+
+        # Create temp table for merge matching, we know this technique...
+        string = """
+            create temp table tmp_spotify_artist_ids (
+                spotify_artist_id text
+            );
+        """
+        self.db.execute(string)
+        self.db.big_insert(spotify_artist_ids, 'tmp_spotify_artist_ids')
+
+        string = """
+            select
+                sp.spotify_artist_id,
+                m.artist_id,
+                coalesce(m.signed, false) as signed,
+                coalesce(st.tw_streams, 0) as tw_streams,
+                coalesce(st.lw_streams, 0) as lw_streams,
+                coalesce(st.pct_chg, 0) as pct_chg,
+                sp.spotify_copyrights as copyrights
+            from tmp_spotify_artist_ids tsai
+            join nielsen_artist.spotify sp on tsai.spotify_artist_id = sp.spotify_artist_id
+            left join nielsen_artist.__artist m on sp.artist_id = m.artist_id
+            left join nielsen_artist.__stats st on sp.artist_id = st.artist_id
+        """
+        existing = self.db.execute(string)
+
+        # Drop temporary table to stay clean
+        string = 'drop table tmp_spotify_artist_ids'
+        self.db.execute(string)
+
+        # Drop duplicate rows, keep the spotify artist id that has the most tw streams associated with it
+        existing = existing.sort_values(by='tw_streams', ascending=False).reset_index(drop=True)
+        existing = existing.drop_duplicates(subset=['spotify_artist_id'], keep='first').reset_index(drop=True)
+
+        return existing
     
     def report_shazam(self):
 
@@ -3293,18 +4032,18 @@ class NielsenDailyUSPipeline(PipelineBase):
             shazam.loc[shazam['lw_rank'] == 0, 'rank_7_day_chg'] = 'New'
             shazam.loc[shazam['lw_rank'] != 0, 'rank_7_day_chg'] = shazam['lw_rank'] - shazam['tp_rank']
 
-            # We can drop anything that's signed at this point
-            shazam = shazam[shazam['signed'] != True].reset_index(drop=True)
+            # Drop duplicate shazam ids within each city
+            shazam = shazam.drop_duplicates(subset=['shazam_id', 'city_name']).reset_index(drop=True)
 
             # Do one more check for signed things
             shazam = self.basicSignedCheck(shazam)
 
-            # Drop signed things again
-            shazam = shazam[shazam['signed'] != True].reset_index(drop=True)
-
             meta = shazam.drop_duplicates(subset=['shazam_id']).reset_index(drop=True)
             counts = shazam.groupby('shazam_id').size().rename('count').reset_index()
             meta = pd.merge(meta, counts, on='shazam_id')
+
+            # We don't need the market rank on the meta report
+            meta = meta.drop(columns='market_rank')
 
             return meta, shazam
         
@@ -3317,44 +4056,538 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         reporting_db.disconnect()
 
+    def report_spotifyArtistStatGrowth(self):
+
+        reporting_db = Db('reporting_db')
+        reporting_db.connect()
+
+        string = """
+            with tw as (
+                select
+                    spotify_artist_id,
+                    artist_name,
+                    genres,
+                    monthly_listeners as tw_monthly_listeners,
+                    popularity as tw_popularity,
+                    followers as tw_followers
+                from chartmetric_raw.spotify_artist_stat
+                inner join chartmetric_raw.spotify_artist on spotify_artist_stat.spotify_artist = spotify_artist.id
+                where monthly_listeners is not null
+                    and timestp = dateadd('days', -3, current_date)
+            ), lw as (
+                select
+                    spotify_artist_id,
+                    monthly_listeners as lw_monthly_listeners,
+                    popularity as lw_popularity,
+                    followers as lw_followers
+                from chartmetric_raw.spotify_artist_stat
+                inner join chartmetric_raw.spotify_artist on spotify_artist_stat.spotify_artist = spotify_artist.id
+                where monthly_listeners is not null
+                    and timestp = dateadd('days', -10, current_date)
+            )
+
+            select
+                tw.*,
+                lw.lw_monthly_listeners,
+                lw.lw_popularity,
+                lw.lw_followers
+            from tw
+            left join lw on tw.spotify_artist_id = lw.spotify_artist_id
+            where tw.tw_monthly_listeners >= 100000
+                and lw.lw_monthly_listeners != 0
+        """
+        df = reporting_db.execute(string)
+
+        reporting_db.disconnect()
+
+        # Do some stats calculations
+        df['montly_listeners_pct_chg'] = ((df['tw_monthly_listeners']).div(df['lw_monthly_listeners']) - 1) * 100
+        df['popularity_pct_chg'] = ((df['tw_popularity']).div(df['lw_popularity']) - 1) * 100
+        df['followers_pct_chg'] = ((df['tw_followers']).div(df['lw_followers']) - 1) * 100
+
+        # Filter out anything that doesn't have at least a >15% increase in one of the stats
+        mask = (
+            (df['montly_listeners_pct_chg'] > 15) | \
+            (df['popularity_pct_chg'] > 15) | \
+            (df['followers_pct_chg'] > 15)
+        )
+
+        df = df[mask].reset_index(drop=True)
+
+        # Attach the spotify data that already exists in our database
+        spotify_df = self.getExistingSpotifyArtistInfoBySpotifyArtistId(df.spotify_artist_id.values)
+
+        # Add the extra info
+        df = pd.merge(df, spotify_df, on='spotify_artist_id', how='left')
+
+        # Drop anything that's signed
+        df = df[df['signed'] != True].reset_index(drop=True)
+
+        df.to_csv(self.reports_fullfiles['spotify_artist_stat_growth'], index=False)
+    
+    def report_artist8WeekGrowth(self):
+
+        string = """
+            select
+                q.artist_id,
+                m.artist,
+                m.track_count,
+                q.num_positive_weeks,
+                m.pct_chg,
+                m.rtd_oda_streams,
+                m.tw_streams,
+                m.genres
+            from (
+                select
+                    artist_id,
+                    sum(is_positive) as num_positive_weeks,
+                    sum(pct_chg) as rolling_pct_chg
+                from (
+                    select
+                        artist_id,
+                        case
+                            when lag_streams is null or lag_streams = 0 then 0
+                            when round(100 * (streams - lag_streams)::numeric / lag_streams, 2) < -50 then -50
+                            when round(100 * (streams - lag_streams)::numeric / lag_streams, 2) > 50 then 50
+                            else round(100 * (streams - lag_streams)::numeric / lag_streams, 2)
+                        end as pct_chg,
+                        case
+                            when streams > lag_streams then 1
+                            else 0
+                        end as is_positive
+                    from (
+                        select *, lag(streams, 1) over (partition by artist_id order by weekly) as lag_streams
+                        from (
+                            select
+                                artist_id,
+                                date_trunc('week', date) as weekly,
+                                sum(streams) as streams
+                            from (
+                                select
+                                    m.artist_id,
+                                    date - ( select extract(dow from value::date - interval '1 day')::int as number_of_days from nielsen_meta where id = 1 ) as date,
+                                    streams
+                                from ( select artist_id from nielsen_artist.__artist where tw_streams > 100000 and signed = false ) m
+                                left join nielsen_artist.streams s on m.artist_id = s.artist_id
+                                where date > ( select value::date from nielsen_meta where id = 1 ) - interval '64 days'
+                                    and date < ( select value::date from nielsen_meta where id = 1 )
+                                order by date
+                            ) q
+                            group by artist_id, weekly
+                        ) q
+                    ) q
+                ) q
+                group by artist_id
+            ) q
+            left join nielsen_artist.__artist m on q.artist_id = m.artist_id
+            where rolling_pct_chg > 0
+                and num_positive_weeks > 4
+            order by num_positive_weeks desc, rolling_pct_chg desc
+        """
+        df = self.db.execute(string)
+
+        df.to_csv(self.reports_fullfiles['artist_8_week_growth'], index=False)
+    
+    def report_song8WeekGrowth(self):
+
+        string = """
+            select
+                q.song_id,
+                m.artist,
+                m.title,
+                q.num_positive_weeks,
+                m.pct_chg,
+                m.rtd_oda_streams,
+                m.tw_streams
+            from (
+                select
+                    song_id,
+                    sum(is_positive) as num_positive_weeks,
+                    sum(pct_chg) as rolling_pct_chg
+                from (
+                    select
+                        song_id,
+                        case
+                            when lag_streams is null or lag_streams = 0 then 0
+                            when round(100 * (streams - lag_streams)::numeric / lag_streams, 2) < -50 then -50
+                            when round(100 * (streams - lag_streams)::numeric / lag_streams, 2) > 50 then 50
+                            else round(100 * (streams - lag_streams)::numeric / lag_streams, 2)
+                        end as pct_chg,
+                        case
+                            when streams > lag_streams then 1
+                            else 0
+                        end as is_positive
+                    from (
+                        select *, lag(streams, 1) over (partition by song_id order by weekly) as lag_streams
+                        from (
+                            select
+                                song_id,
+                                date_trunc('week', date) as weekly,
+                                sum(streams) as streams
+                            from (
+                                select
+                                    m.song_id,
+                                    date - ( select extract(dow from value::date - interval '1 day')::int as number_of_days from nielsen_meta where id = 1 ) as date,
+                                    streams
+                                from ( select song_id from nielsen_song.__song where tw_streams > 100000 and signed = false ) m
+                                left join nielsen_song.streams s on m.song_id = s.song_id
+                                where date > ( select value::date from nielsen_meta where id = 1 ) - interval '64 days'
+                                    and date < ( select value::date from nielsen_meta where id = 1 )
+                                order by date
+                            ) q
+                            group by song_id, weekly
+                        ) q
+                    ) q
+                ) q
+                group by song_id
+            ) q
+            left join nielsen_song.__song m on q.song_id = m.song_id
+            where rolling_pct_chg > 0
+                and num_positive_weeks > 4
+            order by num_positive_weeks desc, rolling_pct_chg desc
+        """
+        df = self.db.execute(string)
+
+        df.to_csv(self.reports_fullfiles['song_8_week_growth'], index=False)
+    
+    def report_genres(self):
+
+        string = """
+            select
+                c.genre_id,
+                c.rnk,
+                c.num_positive_weeks,
+                m.genre,
+                c.should_notify::bool as is_new,
+                st.tw_streams,
+                st.volume,
+                st.growth,
+                st.artists_count,
+                st.avg_tw_streams as avg_tw_streams_per_artist
+            from nielsen_genres.ltg_chart c
+            left join nielsen_genres.__stats st on c.genre_id = st.genre_id
+            left join nielsen_genres.meta m on c.genre_id = m.id
+            where is_top_100 is true
+            order by c.rnk
+        """
+        df = self.db.execute(string)
+
+        df.to_csv(self.reports_fullfiles['growing_genres'], index=False)
+
+        string = """
+            select
+                a.artist_id,
+                a.genre_id,
+                g.genre,
+                m.artist,
+                m.tw_streams,
+                m.pct_chg,
+                a.rnk as genre_rnk,
+                a.is_top_10,
+                a.is_top_50,
+                sp.spotify_copyrights,
+                m.signed
+            from nielsen_genres.artist_tw_chart a
+            left join nielsen_artist.__artist m on a.artist_id = m.artist_id
+            left join nielsen_artist.spotify sp on m.artist_id = sp.artist_id
+            left join nielsen_genres.meta g on a.genre_id = g.id
+            where should_notify::bool is true
+                and m.tw_streams > 0
+        """
+        df = self.db.execute(string)
+
+        df.to_csv(self.reports_fullfiles['new_artists_in_genres_tw_streams'], index=False)
+    
+    def report_nielsenWeeklyAudio(self):
+
+        # Read in the data
+        df = pd.read_csv(self.fullfiles['song'], encoding='UTF-16')
+
+        # Rename the remaining columns for consistency and database usage
+        renameable = {
+            'TW Rank': 'tw_rank',
+            'LW Rank': 'lw_rank',
+            'Artist': 'artist',
+            'Title': 'title',
+            'Unified Song Id': 'unified_song_id',
+            'Label Abbrev': 'label',
+            'CoreGenre': 'core_genre',
+            'Top ISRC': 'isrc',
+            'Release_date': 'release_date',
+            'TW On-Demand Audio Streams': 'tw_oda_streams',
+            'LW On-Demand Audio Streams': 'lw_oda_streams',
+            'L2W_On_Demand_Audio_Streams': 'l2w_oda_streams',
+            'Weekly %change On-Demand Audio Streams': 'weekly_pct_chg_oda_streams',
+            'YTD On-Demand Audio Streams': 'ytd_oda_streams',
+            'RTD On-Demand Audio Streams': 'rtd_oda_streams',
+            'RTD On-Demand Audio Streams - Premium': 'rtd_oda_streams_premium',
+            'RTD On-Demand Audio Streams - Ad Supported': 'rtd_oda_streams_ad_supported',
+            'WTD Building ODA (Friday-Thursday)': 'wtd_building_fri_thurs',
+            '7-day Rolling ODA': 'tw_rolling_oda',
+            'pre-7days rolling ODA': 'lw_rolling_oda',
+            'TW Digital Track Sales': 'tw_digital_track_sales',
+            'YTD Digital Track Sales': 'ytd_digital_track_sales',
+            'ATD Digital Track Sales': 'atd_digital_track_sales',
+            'TW On-Demand Video': 'tw_odv',
+            'LW On-Demand Video': 'lw_odv',
+            'YTD On-Demand Video': 'ytd_odv',
+            'ATD On-Demand Video': 'atd_odv'
+        }
+
+        df = df.rename(columns=renameable)
+
+        # Drop rows that have a null unified_song_id
+        df = df[~df['unified_song_id'].isnull()].reset_index(drop=True)
+
+        # Sometimes we have unified_song_id duplicates from nielsen, ignore these.
+        df = df.drop_duplicates(subset='unified_song_id').reset_index(drop=True)
+
+        # We're actually going to drop the release date because we're going to get it from the database later
+        df = df.drop(columns=['release_date'])
+
+        # Rename / clean daily streaming columns
+        df = df[df.columns.drop(list(df.filter(regex=' - Ad Supported ODA')))]
+        df = df[df.columns.drop(list(df.filter(regex=' - Premium ODA')))]
+        df.columns = df.columns.str.replace(' - Total ODA', '')
+
+        # Clean the types
+        df = df.astype({
+            'tw_rank': 'int',
+            'artist': 'str',
+            'title': 'str',
+            'unified_song_id': 'int',
+            'label': 'str',
+            'core_genre': 'str',
+            'isrc': 'str',
+            'tw_oda_streams': 'int',
+            'l2w_oda_streams': 'int',
+            'rtd_oda_streams': 'int',
+            'rtd_oda_streams_premium': 'int',
+            'rtd_oda_streams_ad_supported': 'int',
+            'tw_digital_track_sales': 'int',
+            'atd_digital_track_sales': 'int',
+            'tw_odv': 'int',
+            'atd_odv': 'int'
+        }).astype({ 'unified_song_id': 'str' })
+
+        # Generate the chart week column names
+        day_of_week = datetime.today().strftime('%A')
+        delta = {
+            'Sunday': 3,
+            'Monday': 4,
+            'Tuesday': 5,
+            'Wednesday': 6,
+            'Thursday': 7,
+            'Friday': 8,
+            'Saturday': 9
+        }
+
+        last_week_chart_week_end = datetime.today() - timedelta(delta[day_of_week])
+
+        dateCols = []
+        for i in range(7):
+            dateCols.append((last_week_chart_week_end - timedelta(i)).strftime('%m/%d/%Y'))
+            
+        # Must be doing >= 50,000 streams
+        df = df[df['tw_oda_streams'] >= 50000].reset_index(drop=True)
+
+        # Attach report to the existing data in the database
+        string = """
+            create temp table tmp_unified_song_ids (
+                unified_song_id text
+            );
+        """
+        self.db.execute(string)
+        self.db.big_insert(df[['unified_song_id']], 'tmp_unified_song_ids')
+
+        string = """
+            select
+                m.song_id,
+                m.artist_id,
+                m.unified_song_id,
+                m.release_date,
+                m.signed,
+                asp.genres,
+                sp.copyrights,
+                sp.spotify_track_id,
+                sp.spotify_album_id,
+                sp.instrumentalness,
+                sp.energy,
+                sp.speechiness,
+                sp.acousticness,
+                sp.tempo
+            from nielsen_song.__song m
+            join tmp_unified_song_ids u on m.unified_song_id = u.unified_song_id
+            left join nielsen_song.spotify sp on m.song_id = sp.song_id
+            left join nielsen_artist.spotify asp on m.artist_id = asp.artist_id
+        """
+        data = self.db.execute(string)
+
+        string = 'drop table tmp_unified_song_ids'
+        self.db.execute(string)
+        df = pd.merge(df, data, on='unified_song_id', how='inner')
+
+        # Drop anything signed
+        df = df[df['signed'] != True].reset_index(drop=True)
+
+        # Add a bunch of extra stats
+
+        # Rank change
+        df['rank_chg'] = df['lw_rank'] - df['tw_rank']
+        df.loc[df['lw_rank'] == 0, 'rank_chg'] = 'New'
+
+        # Percent change lw -> tw
+        df['pct_chg'] = df['tw_oda_streams'].div(df['lw_oda_streams']) - 1
+
+        # 3 Week Acceleration
+        df['three_wk_acc'] = df['tw_oda_streams'].div(df['l2w_oda_streams']).pow(0.5) - 1
+
+        # 7 Day Acceleration
+        df['seven_day_acc'] = df[dateCols[0]].div(df[dateCols[6]]).pow(1 / 6) - 1
+
+        # Filter
+        mask = (
+            (
+                (df['pct_chg'] >= 0.25) & \
+                (df['tw_oda_streams'] >= 200000) & \
+                (df['lw_oda_streams'] >= 5000)
+            ) | \
+            (
+                (df['pct_chg'] >= 0.35) & \
+                (df['tw_oda_streams'] >= 100000) & \
+                (df['lw_oda_streams'] >= 5000)
+            ) | \
+            (
+                (df['three_wk_acc'] >= 0.15) & \
+                (df['tw_oda_streams'] >= 100000) & \
+                (df['l2w_oda_streams'] >= 1000) & \
+                (df['pct_chg'] >= 0.15)
+            ) | \
+            (
+                (df['seven_day_acc'] >= 0.1) & \
+                (df['tw_oda_streams'] >= 100000) & \
+                (df[dateCols[6]] > 1000)
+            ) | \
+            (
+                (df['three_wk_acc'] >= 0.2) & \
+                (df['tw_oda_streams'] >= 100000) & \
+                (df['seven_day_acc'] > 0) & \
+                (df['pct_chg'] >= 0.25)
+            ) | \
+            (
+                (df['tw_oda_streams'] >= 50000) & \
+                (df['tw_oda_streams'] <= 100000) & \
+                (df['seven_day_acc'] >= 0.15) & \
+                (df[dateCols[6]] > 1000)
+            ) | \
+            (
+                (df['three_wk_acc'] >= 0.15) & \
+                (df['tw_oda_streams'] >= 50000) & \
+                (df['tw_oda_streams'] <= 100000) & \
+                (df['seven_day_acc'] > 0) & \
+                (df['pct_chg'] >= 0.4)
+            ) | \
+            (
+                (df['lw_oda_streams'] < 5000) & \
+                (df['tw_oda_streams'] >= 100000)
+            )
+        )
+
+        df = df[mask].reset_index(drop=True)
+
+        # Extract only the relevant columns
+        cols = [
+            'unified_song_id',
+            'artist',
+            'title',
+            'label',
+            'genres',
+            'core_genre',
+            'release_date',
+            'copyrights',
+            'instrumentalness',
+            'three_wk_acc',
+            'tw_oda_streams',
+            'pct_chg',
+            'lw_oda_streams',
+            'l2w_oda_streams',
+            'ytd_oda_streams',
+            'seven_day_acc',
+            *dateCols,
+            'tw_odv',
+            'lw_odv',
+            'ytd_odv',
+            'atd_odv'
+        ]
+
+        df = df[cols].reset_index(drop=True)
+
+        df.to_csv(self.reports_fullfiles['nielsen_weekly_audio'], index=False)
+    
+    def report_artistSocialGrowth(self):
+
+        string = """
+            select *
+            from social_charts.ig_follower_growth
+            order by ig_growth_score desc
+        """
+        df = self.db.execute(string)
+        df.to_csv(self.reports_fullfiles['ig_follower_growth'], index=False)
+
+        string = """
+            select *
+            from social_charts.sp_follower_growth
+            order by sp_growth_score desc
+        """
+        df = self.db.execute(string)
+        df.to_csv(self.reports_fullfiles['sp_follower_growth'], index=False)
+
+        string = """
+            select *
+            from social_charts.tt_follower_growth
+            order by tt_growth_score desc
+        """
+        df = self.db.execute(string)
+        df.to_csv(self.reports_fullfiles['tt_follower_growth'], index=False)
+    
     def emailReports(self):
 
+        def add_file(files, fullfile):
+            if os.path.exists(fullfile):
+                files.append({
+                    'path': fullfile,
+                    'filename': os.path.basename(fullfile)
+                })
+
         files = []
-        
-        if os.path.exists(self.reports_fullfiles['genius_scrape']):
-            files.append({
-                'path': self.reports_fullfiles['genius_scrape'],
-                'filename': os.path.basename(self.reports_fullfiles['genius_scrape'])
-            })
-
-        if os.path.exists(self.reports_fullfiles['nielsen_daily_audio']):
-            files.append({
-                'path': self.reports_fullfiles['nielsen_daily_audio'],
-                'filename': os.path.basename(self.reports_fullfiles['nielsen_daily_audio'])
-            })
-
-        if os.path.exists(self.reports_fullfiles['shazam_by_market']):
-            files.append({
-                'path': self.reports_fullfiles['shazam_by_market'],
-                'filename': os.path.basename(self.reports_fullfiles['shazam_by_market'])
-            })
-
-        if os.path.exists(self.reports_fullfiles['shazam_by_market_streams']):
-            files.append({
-                'path': self.reports_fullfiles['shazam_by_market_streams'],
-                'filename': os.path.basename(self.reports_fullfiles['shazam_by_market_streams'])
-            })
-
-        if os.path.exists(self.reports_fullfiles['shazam_rank_by_country']):
-            files.append({
-                'path': self.reports_fullfiles['shazam_rank_by_country'],
-                'filename': os.path.basename(self.reports_fullfiles['shazam_rank_by_country'])
-            })
+        add_file(files, self.reports_fullfiles['genius_scrape'])
+        add_file(files, self.reports_fullfiles['nielsen_daily_audio'])
+        add_file(files, self.reports_fullfiles['shazam_by_market'])
+        add_file(files, self.reports_fullfiles['shazam_by_market_streams'])
+        add_file(files, self.reports_fullfiles['shazam_rank_by_country'])
+        add_file(files, self.reports_fullfiles['spotify_artist_stat_growth'])
+        add_file(files, self.reports_fullfiles['artist_8_week_growth'])
+        add_file(files, self.reports_fullfiles['song_8_week_growth'])
+        add_file(files, self.reports_fullfiles['growing_genres'])
+        add_file(files, self.reports_fullfiles['nielsen_weekly_audio'])
+        add_file(files, self.reports_fullfiles['new_artists_in_genres_tw_streams'])
+        add_file(files, self.reports_fullfiles['ig_follower_growth'])
+        add_file(files, self.reports_fullfiles['sp_follower_growth'])
+        add_file(files, self.reports_fullfiles['tt_follower_growth'])
 
         recipients = [
-            'alec.mather@rcarecords.com'
+            'alec.mather@rcarecords.com',
+            'aaron.dombey@rcarecords.com',
+            'karl.fricker@rcarecords.com'
         ]
-        self.email.send(recipients, 'Daily Reports', 'The good grace of god beith our strength. HUZZAH!', files)
+
+        if self.settings['is_testing']:
+            recipients = [ 'alec.mather@rcarecords.com' ]
+
+        rapidApi = RapidApi()
+        setup, punchline = rapidApi.getDadJoke()
+
+        self.email.send(recipients, 'Daily Reports', f'Joke of the day:\n{setup}\n{punchline}', files)
 
     def build(self):
 
@@ -3427,7 +4660,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     = Depends on updateGenres, refreshStats
         """
         self.add_function(self.refreshReportsRecent, 'Refresh Reports Recent')
-        # self.add_function(self.recordGenreCharts, 'Record Genre Charts')
+        self.add_function(self.refreshCharts, 'Record Genre Charts')
 
         """
             Stage 7:
@@ -3440,13 +4673,22 @@ class NielsenDailyUSPipeline(PipelineBase):
             Stage 8:
                 - refreshSimpleViews | Refresh materialized aggregate views of artists/songs
                     = Depends on refreshReportsRecent, spotify artist/song data, refreshStats
+                - refreshNotifications | Refresh notifications to send out
+                    = Depends on pretty much everything
         """
         self.add_function(self.refreshSimpleViews, 'Refresh Simple Views')
+        self.add_function(self.refreshNotifications, 'Refresh Notifications')
 
         # Commit
         self.add_function(self.db.commit, 'Commit')
 
         """
+            Functions in this section are meant to be relatively separate from anything before hand. The reason is because
+            these functions are sometimes quite costly in terms of "time". So we end the previous section by committing our
+            database changes (which updates graphitti and has priority) and then we move into this section and finish the
+            rest of the pipeline. Most of what's in this section has to do with reporting, which all gets emailed out at
+            the end of the pipeline.
+
             Stage 9:
                 - updateSpotifyCharts | Updates spotify charts
                     = Depends on refreshSimpleViews
@@ -3454,18 +4696,23 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         self.add_function(self.updateSpotifyCharts, 'Update Spotify Charts', error_on_failure=False)
         self.add_function(self.archiveNielsenFiles, 'Archive Nielsen Files', error_on_failure=False)
+        self.add_function(self.updateArtistSocialCharts, 'Update Artist Social Charts', error_on_failure=False)
 
         """
             Reporting
 
             This section now just has to do with creating and sending out reports according to our schedule.
-
-            Monday:
-                Genius Scrape
         """
 
         self.add_function(self.report_genius, 'Genius Scrape', error_on_failure=False)
+        self.add_function(self.report_spotifyArtistStatGrowth, 'Spotify Artist Stat Growth', error_on_failure=False)
         self.add_function(self.report_dailySongs, 'Daily Songs', error_on_failure=False)
+        self.add_function(self.report_shazam, 'Shazam', error_on_failure=False)
+        self.add_function(self.report_artist8WeekGrowth, 'Artist 8 Week Growth', error_on_failure=False)
+        self.add_function(self.report_song8WeekGrowth, 'Song 8 Week Growth', error_on_failure=False)
+        self.add_function(self.report_genres, 'Growing Genres Report', error_on_failure=False)
+        self.add_function(self.report_nielsenWeeklyAudio, 'Nielsen Weekly Audio', error_on_failure=False)
+        self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth', error_on_failure=False)
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
 
     def test_build(self):
@@ -3475,11 +4722,19 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         self.add_function(self.downloadFiles, 'Download Files')
         self.add_function(self.validateSession, 'Validate Session')
-        self.add_function(self.processArtists, 'Process Artists')
-        self.add_function(self.processSongs, 'Process Songs')
-        self.add_function(self.testDbInsert, 'Test Db Insert')
+        # self.add_function(self.processArtists, 'Process Artists')
+        # self.add_function(self.processSongs, 'Process Songs')
+        # self.add_function(self.testDbInsert, 'Test Db Insert')
 
         # self.add_function(self.report_genius, 'Genius Scrape', error_on_failure=False)
+        # self.add_function(self.report_spotifyArtistStatGrowth, 'Spotify Artist Stat Growth', error_on_failure=False)
         # self.add_function(self.report_dailySongs, 'Daily Songs', error_on_failure=False)
-        self.add_function(self.report_shazam, 'Shazam', error_on_failure=False)
+        # self.add_function(self.report_shazam, 'Shazam', error_on_failure=False)
+        # self.add_function(self.report_artist8WeekGrowth, 'Artist 8 Week Growth', error_on_failure=False)
+        # self.add_function(self.report_song8WeekGrowth, 'Song 8 Week Growth', error_on_failure=False)
+        # self.add_function(self.report_nielsenWeeklyAudio, 'Nielsen Weekly Audio', error_on_failure=False)
+        # self.add_function(self.report_genres, 'Genres Reports', error_on_failure=False)
+        self.add_function(self.updateArtistSocialCharts, 'Update Artist Social Charts')
+        self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth')
+
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
