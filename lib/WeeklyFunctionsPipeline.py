@@ -14,35 +14,44 @@ class WeeklyFunctionsPipeline(PipelineBase):
 
         # Start by getting the spotify artist ids from our db
         string = """
-            select *
+            select
+                artist_id,
+                unified_artist_id,
+                spotify_artist_id
             from nielsen_artist.cm_map
             where spotify_artist_id is not null
                 and length(spotify_artist_id) > 0
         """
         df = self.db.execute(string)
 
-        if df is None:
-            raise Exception('Error getting spotify artist ids to recache chartmetric ids')
+        if df.empty:
+            return
 
-        spotify_artist_ids = tuple(df['spotify_artist_id'].unique())
+        # First extract all the spotify artist ids and drop duplicates
+        spotify_artist_ids = df[['spotify_artist_id']].drop_duplicates(subset=['spotify_artist_id']).reset_index(drop=True)
 
         reporting_db = Db('reporting_db')
         reporting_db.connect()
 
-        # Get the charmetric mapping
         string = """
-            with temp as (
+            create temp table ids (
+                spotify_artist_id text
+            );
+        """
+        reporting_db.execute(string)
+        reporting_db.big_insert_redshift(spotify_artist_ids, 'ids')
+
+        string = """
+            with t as (
                 select
-                    cm_artist as target_id,
-                    spotify_artist_id as spotify_id
-                from chartmetric_raw.spotify_artist
-                where spotify_artist_id in %(spotify_ids)s
-            ), t as (
-                select
-                    temp.*, cm.account_id, cm.type
-                from temp
+                    ids.spotify_artist_id,
+                    sa.cm_artist as target_id,
+                    cm.account_id,
+                    cm.type
+                from ids
+                join chartmetric_raw.spotify_artist sa on ids.spotify_artist_id = sa.spotify_artist_id
                 left join chartmetric_raw.cm_url cm
-                    on cm.target_id = temp.target_id
+                    on cm.target_id = sa.cm_artist
                     and cm.target = 'cm_artist'
             ), instagram as (
                 select target_id, account_id as instagram_id
@@ -75,7 +84,7 @@ class WeeklyFunctionsPipeline(PipelineBase):
 
             select
                 t.target_id,
-                t.spotify_id as spotify_artist_id,
+                t.spotify_artist_id,
                 ig.instagram_id,
                 yt.youtube_id,
                 tt.tiktok_id,
@@ -96,32 +105,79 @@ class WeeklyFunctionsPipeline(PipelineBase):
             left join gtrends gt on t.target_id = gt.target_id
             left join soundcloud sc on t.target_id = sc.target_id
             left join twitch tc on t.target_id = tc.target_id
-            left join chartmetric_raw.spotify_artist sa on t.spotify_id = sa.spotify_artist_id
-            group by t.target_id, t.spotify_id, sa.id, instagram_id, youtube_id, tiktok_id, shazam_id, twitter_id, genius_id, gtrends_id, soundcloud_id, twitch_id
+            left join chartmetric_raw.spotify_artist sa on t.spotify_artist_id = sa.spotify_artist_id
+            group by
+                t.target_id, t.spotify_artist_id,
+                sa.id,
+                instagram_id, youtube_id, tiktok_id,
+                shazam_id, twitter_id, genius_id, gtrends_id, soundcloud_id, twitch_id
         """
-        params = { 'spotify_ids': spotify_artist_ids }
-        data = reporting_db.execute(string, params)
-
-        # Disconnect from reporting db
+        data = reporting_db.execute(string)
         reporting_db.disconnect()
 
-        if data is None:
-            raise Exception('Error getting ids from reporting db')
+        if data.empty:
+            return
 
-        # Attach the new ids to the existing artist_id/spotify_artist_id
-        data = pd.merge(data, df[['artist_id', 'spotify_artist_id']], on='spotify_artist_id', how='inner')
+        # Clean the potentially int columns of the notorious .0
+        data = data.astype({
+            'target_id': 'str',
+            'spotify_id': 'str'
+        })
 
-        # Remove existing records
+        data[['target_id', 'spotify_id']] = data[['target_id', 'spotify_id']].replace('.0', '', regex=True)
+
+        # Merge back with original data
+        df = pd.merge(df, data, on='spotify_artist_id', how='left')
+
+        # Create temp table for the new ids we're going to insert
         string = """
-            delete
-            from nielsen_artist.cm_map
-            where artist_id in %(artist_ids)s
+            create temp table tmp_ids (
+                artist_id int,
+                spotify_artist_id text,
+                unified_artist_id text,
+                target_id text,
+                instagram_id text,
+                youtube_id text,
+                tiktok_id text,
+                shazam_id text,
+                twitter_id text,
+                genius_id text,
+                gtrends_id text,
+                soundcloud_id text,
+                twitch_id text,
+                spotify_id text
+            )
         """
-        params = { 'artist_ids': tuple(data.artist_id.values) }
-        self.db.execute(string, params)
+        self.db.execute(string)
+        self.db.big_insert(df, 'tmp_ids')
 
-        # Insert updated records
-        self.db.big_insert(data, 'nielsen_artist.cm_map')
+        # Upsert new ids
+        string = """
+            insert into nielsen_artist.cm_map (
+                artist_id, spotify_artist_id, unified_artist_id, target_id, instagram_id, youtube_id,
+                tiktok_id, shazam_id, twitter_id, genius_id, gtrends_id, soundcloud_id, twitch_id, spotify_id
+            )
+            select
+                artist_id, spotify_artist_id, unified_artist_id, target_id, instagram_id, youtube_id,
+                tiktok_id, shazam_id, twitter_id, genius_id, gtrends_id, soundcloud_id, twitch_id, spotify_id
+            from tmp_ids
+            on conflict (artist_id) do update
+            set
+                spotify_artist_id = excluded.spotify_artist_id,
+                unified_artist_id = excluded.unified_artist_id,
+                target_id = excluded.target_id,
+                instagram_id = excluded.instagram_id,
+                youtube_id = excluded.youtube_id,
+                tiktok_id = excluded.tiktok_id,
+                shazam_id = excluded.shazam_id,
+                twitter_id = excluded.twitter_id,
+                genius_id = excluded.genius_id,
+                gtrends_id = excluded.gtrends_id,
+                soundcloud_id = excluded.soundcloud_id,
+                twitch_id = excluded.twitch_id,
+                spotify_id = excluded.spotify_id
+        """
+        self.db.execute(string)
 
     def cacheArtistDiscoveryStats(self):
 
