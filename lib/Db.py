@@ -1,4 +1,5 @@
-from .env import TMP_FOLDER, RCA_DB_PROD, RCA_DB_DEV, REPORTING_DB
+from .env import TMP_FOLDER, RCA_DB_PROD, RCA_DB_DEV, REPORTING_DB, AWS_ACCESS_KEY, AWS_SECRET_KEY
+from .Aws import Aws
 from datetime import datetime
 from psycopg2 import sql
 from psycopg2.extensions import register_adapter, AsIs
@@ -157,6 +158,72 @@ class Db:
         # Commit changes if we specify it
         if commit is True:
             self.commit()
+
+    def big_insert_redshift(self, df, table):
+
+        """
+
+            IMPORTANT:
+            This method will only work when the connection provided for
+            this database instance is for a redshift database. We currently
+            have 2 different db types available as connection types, our personal
+            postgres and the reporting db redshift. So this method won't work properly
+            with our personal postgres.
+        
+            This is the same idea as self.big_insert except we have
+            to do things a bit differently when inserting to a redshift db.
+
+            First we have to write the file to a csv locally, then we have
+            to upload it to s3, then we have to copy it into the redshift
+            from the s3 bucket.
+
+        """
+
+        # We cannot upload anything with single/double quotes because those are reserved, so
+        # we must clean the dataframe of those
+        df = df[df.columns].replace({ "'": '', '"': '' }, regex=True)
+
+        # Build files/folders
+        csv_filename = f'tmp_df_{datetime.now()}.csv'
+        local_csv_fullfile = os.path.join(TMP_FOLDER, csv_filename)
+        remote_csv_fullfile = os.path.join('tmp', csv_filename)
+
+        # Write the temporary file
+        df.to_csv(local_csv_fullfile, index=False, na_rep='NaN')
+
+        # Upload the file to the s3 bucket
+        aws = Aws()
+        aws.connect_s3()
+        aws.upload_s3(local_csv_fullfile, remote_csv_fullfile)
+
+        string_options = """
+            from 's3://busd-rca-projects/{}'
+            credentials 'aws_access_key_id={};aws_secret_access_key={}'
+            ignoreheader 1
+            delimiter ','
+            emptyasnull
+            escape removequotes
+        """.format(
+            remote_csv_fullfile,
+            AWS_ACCESS_KEY,
+            AWS_SECRET_KEY
+        )
+
+        # Copy the file from the s3 bucket over to the redshift
+        string = sql.SQL('copy {} ({})\n' + string_options).format(
+            sql.Identifier(*table.split('.')),
+            sql.SQL(',').join([sql.Identifier(i) for i in df.columns])
+        )
+
+        self.execute(string)
+
+        # Delete the file from the s3 bucket
+        aws.delete_file_s3(remote_csv_fullfile)
+
+        # Delete the local file
+        os.remove(local_csv_fullfile)
+
+        print('Copied successfully')
 
     def copy_expert(self, df, string):
 
