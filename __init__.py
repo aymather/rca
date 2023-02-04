@@ -8,6 +8,8 @@ from .lib.Time import Time
 from .lib.Sftp import Sftp
 from .lib.Email import Email
 from .lib.Aws import Aws
+from .lib.RapidApi import RapidApi
+from .lib.BinnedModel import BinnedModel
 
 from .lib.settings import get_settings
 
