@@ -28,6 +28,10 @@ class SchedulerBase(ABC):
     def set(self, day: str, pipeline: PipelineBase):
         self.schedule[day].append(pipeline)
 
+    def setToday(self, pipeline: PipelineBase):
+        day_of_week = self.settings['date'].strftime('%A')
+        self.schedule[day_of_week].append(pipeline)
+
     def set_report(self, name: str, report: str):
         self.report += name + ' Report: \n'
         self.report += report
