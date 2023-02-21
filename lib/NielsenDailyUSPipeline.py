@@ -3584,11 +3584,12 @@ class NielsenDailyUSPipeline(PipelineBase):
             select
                 m.unified_song_id,
                 m.signed,
-                sp.genre,
+                asp.genres,
                 sp.copyrights,
                 sp.instrumentalness
             from nielsen_song.__song m
             join unified_song_ids u on m.unified_song_id = u.unified_song_id
+            left join nielsen_artist.spotify asp on asp.artist_id = m.artist_id
             left join nielsen_song.spotify sp on m.song_id = sp.song_id
         """
         signed_df = self.db.execute(string)
