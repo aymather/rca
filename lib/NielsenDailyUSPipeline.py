@@ -4586,9 +4586,9 @@ class NielsenDailyUSPipeline(PipelineBase):
             recipients = [ 'alec.mather@rcarecords.com' ]
 
         rapidApi = RapidApi()
-        setup, punchline = rapidApi.getDadJoke()
+        quote = rapidApi.getInspirationalQuote()
 
-        self.email.send(recipients, 'Daily Reports', f'Joke of the day:\n{setup}\n{punchline}', files)
+        self.email.send(recipients, 'Daily Reports', f'Quote of the day:\n{quote}', files)
 
     def build(self):
 

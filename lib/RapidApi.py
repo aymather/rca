@@ -25,3 +25,15 @@ class RapidApi:
 
         except:
             return 'Sorry.. I dont have a good one today..', 'That\'s no joke..'
+
+    def getInspirationalQuote(self):
+
+        try:
+
+            url = 'https://zenquotes.io/api/quotes'
+            res = requests.get(url)
+            res = res.json()
+            return res[0]['q']
+
+        except:
+            return 'Silence is bliss...'
