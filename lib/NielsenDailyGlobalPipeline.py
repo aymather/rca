@@ -483,6 +483,203 @@ class NielsenDailyGlobalPipeline(PipelineBase):
 
         self.add_function(processFunc, file['filename'])
 
+    def refreshGlobalWeeklyStreams(self):
+
+        string = """
+
+            -- Artists
+            delete from nielsen_artist.global;
+            with country_streams_json as (
+                select
+                    artist_id,
+                    jsonb_build_object (
+                        'global', sum (
+                            coalesce(streams, 0) + coalesce(austria, 0) + coalesce(belgium, 0) + coalesce(croatia, 0) + coalesce(czech_republic, 0) +
+                            coalesce(denmark, 0) + coalesce(finland, 0) + coalesce(france, 0) + coalesce(germany, 0) + coalesce(iceland, 0) + coalesce(ireland, 0) +
+                            coalesce(italy, 0) + coalesce(luxembourg, 0) + coalesce(netherlands, 0) + coalesce(norway, 0) + coalesce(poland, 0) + coalesce(portugal, 0) +
+                            coalesce(spain, 0) + coalesce(sweden, 0) + coalesce(switzerland, 0) + coalesce(united_kingdom, 0) + coalesce(japan, 0) + coalesce(korea, 0) +
+                            coalesce(australia, 0) + coalesce(hong_kong, 0) + coalesce(indonesia, 0) + coalesce(malaysia, 0) + coalesce(new_zealand, 0) +
+                            coalesce(philippines, 0) + coalesce(singapore, 0) + coalesce(taiwan, 0) + coalesce(thailand, 0) + coalesce(vietnam, 0) + coalesce(argentina, 0) +
+                            coalesce(bolivia, 0) + coalesce(brazil, 0) + coalesce(chile, 0) + coalesce(colombia, 0) + coalesce(ecuador, 0) + coalesce(mexico, 0) +
+                            coalesce(peru, 0) + coalesce(greece, 0) + coalesce(hungary, 0) + coalesce(india, 0) + coalesce(romania, 0) + coalesce(slovakia, 0) +
+                            coalesce(south_africa, 0) + coalesce(turkey, 0)
+                        ),
+                        'us', sum ( coalesce(streams, 0) ),
+                        'ex_us', sum (
+                            coalesce(austria, 0) + coalesce(belgium, 0) + coalesce(croatia, 0) + coalesce(czech_republic, 0) +
+                            coalesce(denmark, 0) + coalesce(finland, 0) + coalesce(france, 0) + coalesce(germany, 0) + coalesce(iceland, 0) + coalesce(ireland, 0) +
+                            coalesce(italy, 0) + coalesce(luxembourg, 0) + coalesce(netherlands, 0) + coalesce(norway, 0) + coalesce(poland, 0) + coalesce(portugal, 0) +
+                            coalesce(spain, 0) + coalesce(sweden, 0) + coalesce(switzerland, 0) + coalesce(united_kingdom, 0) + coalesce(japan, 0) + coalesce(korea, 0) +
+                            coalesce(australia, 0) + coalesce(hong_kong, 0) + coalesce(indonesia, 0) + coalesce(malaysia, 0) + coalesce(new_zealand, 0) +
+                            coalesce(philippines, 0) + coalesce(singapore, 0) + coalesce(taiwan, 0) + coalesce(thailand, 0) + coalesce(vietnam, 0) + coalesce(argentina, 0) +
+                            coalesce(bolivia, 0) + coalesce(brazil, 0) + coalesce(chile, 0) + coalesce(colombia, 0) + coalesce(ecuador, 0) + coalesce(mexico, 0) +
+                            coalesce(peru, 0) + coalesce(greece, 0) + coalesce(hungary, 0) + coalesce(india, 0) + coalesce(romania, 0) + coalesce(slovakia, 0) +
+                            coalesce(south_africa, 0) + coalesce(turkey, 0)
+                        ),
+                        'austria', sum ( coalesce(austria, 0) ),
+                        'belgium', sum ( coalesce(belgium, 0) ),
+                        'croatia', sum ( coalesce(croatia, 0) ),
+                        'czech_republic', sum ( coalesce(czech_republic, 0) ),
+                        'denmark', sum ( coalesce(denmark, 0) ),
+                        'finland', sum ( coalesce(finland, 0) ),
+                        'france', sum ( coalesce(france, 0) ),
+                        'germany', sum ( coalesce(germany, 0) ),
+                        'iceland', sum ( coalesce(iceland, 0) ),
+                        'ireland', sum ( coalesce(ireland, 0) ),
+                        'italy', sum ( coalesce(italy, 0) ),
+                        'luxembourg', sum ( coalesce(luxembourg, 0) ),
+                        'netherlands', sum ( coalesce(netherlands, 0) ),
+                        'norway', sum ( coalesce(norway, 0) ),
+                        'poland', sum ( coalesce(poland, 0) ),
+                        'portugal', sum ( coalesce(portugal, 0) ),
+                        'spain', sum ( coalesce(spain, 0) ),
+                        'sweden', sum ( coalesce(sweden, 0) ),
+                        'switzerland', sum ( coalesce(switzerland, 0) ),
+                        'united_kingdom', sum ( coalesce(united_kingdom, 0) ),
+                        'japan', sum ( coalesce(japan, 0) ),
+                        'korea', sum ( coalesce(korea, 0) ),
+                        'australia', sum ( coalesce(australia, 0) ),
+                        'hong_kong', sum ( coalesce(hong_kong, 0) ),
+                        'indonesia', sum ( coalesce(indonesia, 0) ),
+                        'malaysia', sum ( coalesce(malaysia, 0) ),
+                        'new_zealand', sum ( coalesce(new_zealand, 0) ),
+                        'philippines', sum ( coalesce(philippines, 0) ),
+                        'singapore', sum ( coalesce(singapore, 0) ),
+                        'taiwan', sum ( coalesce(taiwan, 0) ),
+                        'thailand', sum ( coalesce(thailand, 0) ),
+                        'vietnam', sum ( coalesce(vietnam, 0) ),
+                        'argentina', sum ( coalesce(argentina, 0) ),
+                        'bolivia', sum ( coalesce(bolivia, 0) ),
+                        'brazil', sum ( coalesce(brazil, 0) ),
+                        'chile', sum ( coalesce(chile, 0) ),
+                        'colombia', sum ( coalesce(colombia, 0) ),
+                        'ecuador', sum ( coalesce(ecuador, 0) ),
+                        'mexico', sum ( coalesce(mexico, 0) ),
+                        'peru', sum ( coalesce(peru, 0) ),
+                        'greece', sum ( coalesce(greece, 0) ),
+                        'hungary', sum ( coalesce(hungary, 0) ),
+                        'india', sum ( coalesce(india, 0) ),
+                        'romania', sum ( coalesce(romania, 0) ),
+                        'slovakia', sum ( coalesce(slovakia, 0) ),
+                        'south_africa', sum ( coalesce(south_africa, 0) ),
+                        'turkey', sum ( coalesce(turkey, 0) )
+                    ) as json_data
+                from nielsen_artist.streams
+                where date < ( select value::date from nielsen_meta where id = 1 )
+                    and date > ( select value::date from nielsen_meta where id = 1 )::date - interval '8 days'
+                group by artist_id
+            ), tw_streams_data as (
+                select
+                    *,
+                    row_number() over (partition by country order by tw_streams desc) as rnk
+                from (
+                    select artist_id, country, tw_streams::integer
+                    from country_streams_json,
+                        lateral jsonb_each_text(json_data) as t(country, tw_streams)
+                ) q
+            )
+
+            insert into nielsen_artist.global
+            select artist_id, country, tw_streams, rnk from tw_streams_data;
+
+            -- Songs
+            delete from nielsen_song.global;
+            with country_streams_json as (
+                select
+                    song_id,
+                    jsonb_build_object (
+                        'global', sum (
+                            coalesce(streams, 0) + coalesce(austria, 0) + coalesce(belgium, 0) + coalesce(croatia, 0) + coalesce(czech_republic, 0) +
+                            coalesce(denmark, 0) + coalesce(finland, 0) + coalesce(france, 0) + coalesce(germany, 0) + coalesce(iceland, 0) + coalesce(ireland, 0) +
+                            coalesce(italy, 0) + coalesce(luxembourg, 0) + coalesce(netherlands, 0) + coalesce(norway, 0) + coalesce(poland, 0) + coalesce(portugal, 0) +
+                            coalesce(spain, 0) + coalesce(sweden, 0) + coalesce(switzerland, 0) + coalesce(united_kingdom, 0) + coalesce(japan, 0) + coalesce(korea, 0) +
+                            coalesce(australia, 0) + coalesce(hong_kong, 0) + coalesce(indonesia, 0) + coalesce(malaysia, 0) + coalesce(new_zealand, 0) +
+                            coalesce(philippines, 0) + coalesce(singapore, 0) + coalesce(taiwan, 0) + coalesce(thailand, 0) + coalesce(vietnam, 0) + coalesce(argentina, 0) +
+                            coalesce(bolivia, 0) + coalesce(brazil, 0) + coalesce(chile, 0) + coalesce(colombia, 0) + coalesce(ecuador, 0) + coalesce(mexico, 0) +
+                            coalesce(peru, 0) + coalesce(greece, 0) + coalesce(hungary, 0) + coalesce(india, 0) + coalesce(romania, 0) + coalesce(slovakia, 0) +
+                            coalesce(south_africa, 0) + coalesce(turkey, 0)
+                        ),
+                        'us', sum ( coalesce(streams, 0) ),
+                        'ex_us', sum (
+                            coalesce(austria, 0) + coalesce(belgium, 0) + coalesce(croatia, 0) + coalesce(czech_republic, 0) +
+                            coalesce(denmark, 0) + coalesce(finland, 0) + coalesce(france, 0) + coalesce(germany, 0) + coalesce(iceland, 0) + coalesce(ireland, 0) +
+                            coalesce(italy, 0) + coalesce(luxembourg, 0) + coalesce(netherlands, 0) + coalesce(norway, 0) + coalesce(poland, 0) + coalesce(portugal, 0) +
+                            coalesce(spain, 0) + coalesce(sweden, 0) + coalesce(switzerland, 0) + coalesce(united_kingdom, 0) + coalesce(japan, 0) + coalesce(korea, 0) +
+                            coalesce(australia, 0) + coalesce(hong_kong, 0) + coalesce(indonesia, 0) + coalesce(malaysia, 0) + coalesce(new_zealand, 0) +
+                            coalesce(philippines, 0) + coalesce(singapore, 0) + coalesce(taiwan, 0) + coalesce(thailand, 0) + coalesce(vietnam, 0) + coalesce(argentina, 0) +
+                            coalesce(bolivia, 0) + coalesce(brazil, 0) + coalesce(chile, 0) + coalesce(colombia, 0) + coalesce(ecuador, 0) + coalesce(mexico, 0) +
+                            coalesce(peru, 0) + coalesce(greece, 0) + coalesce(hungary, 0) + coalesce(india, 0) + coalesce(romania, 0) + coalesce(slovakia, 0) +
+                            coalesce(south_africa, 0) + coalesce(turkey, 0)
+                        ),
+                        'austria', sum ( coalesce(austria, 0) ),
+                        'belgium', sum ( coalesce(belgium, 0) ),
+                        'croatia', sum ( coalesce(croatia, 0) ),
+                        'czech_republic', sum ( coalesce(czech_republic, 0) ),
+                        'denmark', sum ( coalesce(denmark, 0) ),
+                        'finland', sum ( coalesce(finland, 0) ),
+                        'france', sum ( coalesce(france, 0) ),
+                        'germany', sum ( coalesce(germany, 0) ),
+                        'iceland', sum ( coalesce(iceland, 0) ),
+                        'ireland', sum ( coalesce(ireland, 0) ),
+                        'italy', sum ( coalesce(italy, 0) ),
+                        'luxembourg', sum ( coalesce(luxembourg, 0) ),
+                        'netherlands', sum ( coalesce(netherlands, 0) ),
+                        'norway', sum ( coalesce(norway, 0) ),
+                        'poland', sum ( coalesce(poland, 0) ),
+                        'portugal', sum ( coalesce(portugal, 0) ),
+                        'spain', sum ( coalesce(spain, 0) ),
+                        'sweden', sum ( coalesce(sweden, 0) ),
+                        'switzerland', sum ( coalesce(switzerland, 0) ),
+                        'united_kingdom', sum ( coalesce(united_kingdom, 0) ),
+                        'japan', sum ( coalesce(japan, 0) ),
+                        'korea', sum ( coalesce(korea, 0) ),
+                        'australia', sum ( coalesce(australia, 0) ),
+                        'hong_kong', sum ( coalesce(hong_kong, 0) ),
+                        'indonesia', sum ( coalesce(indonesia, 0) ),
+                        'malaysia', sum ( coalesce(malaysia, 0) ),
+                        'new_zealand', sum ( coalesce(new_zealand, 0) ),
+                        'philippines', sum ( coalesce(philippines, 0) ),
+                        'singapore', sum ( coalesce(singapore, 0) ),
+                        'taiwan', sum ( coalesce(taiwan, 0) ),
+                        'thailand', sum ( coalesce(thailand, 0) ),
+                        'vietnam', sum ( coalesce(vietnam, 0) ),
+                        'argentina', sum ( coalesce(argentina, 0) ),
+                        'bolivia', sum ( coalesce(bolivia, 0) ),
+                        'brazil', sum ( coalesce(brazil, 0) ),
+                        'chile', sum ( coalesce(chile, 0) ),
+                        'colombia', sum ( coalesce(colombia, 0) ),
+                        'ecuador', sum ( coalesce(ecuador, 0) ),
+                        'mexico', sum ( coalesce(mexico, 0) ),
+                        'peru', sum ( coalesce(peru, 0) ),
+                        'greece', sum ( coalesce(greece, 0) ),
+                        'hungary', sum ( coalesce(hungary, 0) ),
+                        'india', sum ( coalesce(india, 0) ),
+                        'romania', sum ( coalesce(romania, 0) ),
+                        'slovakia', sum ( coalesce(slovakia, 0) ),
+                        'south_africa', sum ( coalesce(south_africa, 0) ),
+                        'turkey', sum ( coalesce(turkey, 0) )
+                    ) as json_data
+                from nielsen_song.streams
+                where date < ( select value::date from nielsen_meta where id = 1 )
+                    and date > ( select value::date from nielsen_meta where id = 1 )::date - interval '8 days'
+                group by song_id
+            ), tw_streams_data as (
+                select
+                    *,
+                    row_number() over (partition by country order by tw_streams desc) as rnk
+                from (
+                    select song_id, country, tw_streams::integer
+                    from country_streams_json,
+                        lateral jsonb_each_text(json_data) as t(country, tw_streams)
+                ) q
+            )
+
+            insert into nielsen_song.global
+            select song_id, country, tw_streams, rnk from tw_streams_data;
+
+        """
+        self.db.execute(string)
+    
     def build(self):
 
         print('Building function structure...')
@@ -499,6 +696,10 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         # Create a process function for each file separately
         for file in files:
             self.addProcessFuncFromFile(file)
+
+        # Refresh the global weekly streaming aggregates if we loaded new files
+        if len(files) > 0:
+            self.add_function(self.refreshGlobalWeeklyStreams, 'Refresh Global Weekly Streams')
 
     def test_build(self):
 
