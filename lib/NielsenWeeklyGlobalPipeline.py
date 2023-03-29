@@ -504,6 +504,8 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         files = self.getNewWeeklyFiles()
         print(f'Processing {len(files)} new files')
 
+        files = files.sort_values(by='server_name').reset_index(drop=True).to_dict('records')
+
         for file in files.to_dict('records'):
             self.addProcessFunc(file)
 
