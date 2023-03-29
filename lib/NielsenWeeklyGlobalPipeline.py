@@ -1,6 +1,5 @@
 from .PipelineBase import PipelineBase
 from .Sftp import Sftp
-from .Sftp import Sftp
 from datetime import datetime, timedelta
 import pandas as pd
 import os
@@ -457,7 +456,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         df = self.cleanSongs(df)
         self.songUpdates(df)
 
-        self.updateSongsLastProcessed
+        self.updateSongsLastProcessed(file)
         self.finishFileProcess(file)
 
     def initFileProcess(self, file):
@@ -506,7 +505,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
 
         files = files.sort_values(by='server_name').reset_index(drop=True).to_dict('records')
 
-        for file in files.to_dict('records'):
+        for file in files:
             self.addProcessFunc(file)
 
     def test_build(self):
