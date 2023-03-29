@@ -65,7 +65,6 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         sftp = Sftp(server_name)
         filenames = sftp.list()
 
-
         files = []
         song_filename = [i for i in filenames if SONGS_STR_INDICATOR in i and '__NO_DATA' not in i][0]
         artist_filename = [i for i in filenames if ARTISTS_STR_INDICATOR in i and '__NO_DATA' not in i][0]

@@ -17,6 +17,7 @@ from .lib.NielsenDailyUSPipeline import NielsenDailyUSPipeline
 from .lib.NielsenDailyGlobalPipeline import NielsenDailyGlobalPipeline
 from .lib.NielsenWeeklyMappingTablePipeline import NielsenWeeklyMappingTablePipeline
 from .lib.WeeklyFunctionsPipeline import WeeklyFunctionsPipeline
+from .lib.NielsenWeeklyGlobalPipeline import NielsenWeeklyGlobalPipeline
 
 from .lib.RCAResearchTeamScheduler import RCAResearchTeamScheduler
 

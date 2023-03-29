@@ -13,7 +13,17 @@ from .env import (
     RCA_NIELSEN_EMERGING_DAILY_SFTP_USERNAME, 
     RCA_NIELSEN_EMERGING_DAILY_SFTP_PASSWORD,
     RCA_NIELSEN_MAPPING_TABLE_USERNAME,
-    RCA_NIELSEN_MAPPING_TABLE_PASSWORD
+    RCA_NIELSEN_MAPPING_TABLE_PASSWORD,
+    RCA_NIELSEN_EU_WEEKLY_SFTP_USERNAME,
+    RCA_NIELSEN_EU_WEEKLY_SFTP_PASSWORD,
+    RCA_NIELSEN_NE_ASIA_WEEKLY_SFTP_USERNAME,
+    RCA_NIELSEN_NE_ASIA_WEEKLY_SFTP_PASSWORD,
+    RCA_NIELSEN_SE_ASIA_WEEKLY_SFTP_USERNAME,
+    RCA_NIELSEN_SE_ASIA_WEEKLY_SFTP_PASSWORD,
+    RCA_NIELSEN_LATIN_AMERICA_WEEKLY_SFTP_USERNAME,
+    RCA_NIELSEN_LATIN_AMERICA_WEEKLY_SFTP_PASSWORD,
+    RCA_NIELSEN_EMERGING_WEEKLY_SFTP_USERNAME,
+    RCA_NIELSEN_EMERGING_WEEKLY_SFTP_PASSWORD
 )
 
 
@@ -59,6 +69,36 @@ CONNECTIONS = {
         'port': 22,
         'username': RCA_NIELSEN_EMERGING_DAILY_SFTP_USERNAME,
         'password': RCA_NIELSEN_EMERGING_DAILY_SFTP_PASSWORD
+    },
+    'eu_weekly': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_EU_WEEKLY_SFTP_USERNAME,
+        'password': RCA_NIELSEN_EU_WEEKLY_SFTP_PASSWORD
+    },
+    'ne_asia_weekly': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_NE_ASIA_WEEKLY_SFTP_USERNAME,
+        'password': RCA_NIELSEN_NE_ASIA_WEEKLY_SFTP_PASSWORD
+    },
+    'se_asia_weekly': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_SE_ASIA_WEEKLY_SFTP_USERNAME,
+        'password': RCA_NIELSEN_SE_ASIA_WEEKLY_SFTP_PASSWORD
+    },
+    'lat_am_weekly': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_LATIN_AMERICA_WEEKLY_SFTP_USERNAME,
+        'password': RCA_NIELSEN_LATIN_AMERICA_WEEKLY_SFTP_PASSWORD
+    },
+    'emerging_weekly': {
+        'host': 'sftp.mrc-data.com',
+        'port': 22,
+        'username': RCA_NIELSEN_EMERGING_WEEKLY_SFTP_USERNAME,
+        'password': RCA_NIELSEN_EMERGING_WEEKLY_SFTP_PASSWORD
     }
 }
 
