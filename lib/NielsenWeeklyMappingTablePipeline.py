@@ -299,26 +299,10 @@ class NielsenWeeklyMappingTablePipeline(PipelineBase):
             df = df.sample(1000).reset_index(drop=True)
 
         string = """
-            create temp table tmp_artists (like nielsen_map.artists);
+            delete from nielsen_map.artists;
         """
         self.db.execute(string)
-        self.db.big_insert(df, 'tmp_artists')
-
-        string = """
-            insert into nielsen_map.artists (unified_artist_id, primary_artist_id, unified_artist_name, primary_artist_name)
-            select unified_artist_id, primary_artist_id, unified_artist_name, primary_artist_name
-            from tmp_artists
-            on conflict (unified_artist_id, primary_artist_id) do update
-            set
-                unified_artist_name = excluded.unified_artist_name,
-                primary_artist_name = excluded.primary_artist_name;
-        """
-        self.db.execute(string)
-
-        string = """
-            drop table tmp_artists;
-        """
-        self.db.execute(string)
+        self.db.big_insert(df, 'nielsen_map.artists')
 
     def processCollections(self):
 
@@ -328,27 +312,10 @@ class NielsenWeeklyMappingTablePipeline(PipelineBase):
             df = df.sample(1000).reset_index(drop=True)
 
         string = """
-            create temp table tmp_collections (like nielsen_map.collections);
+            delete from nielsen_map.collections;
         """
         self.db.execute(string)
-        self.db.big_insert(df, 'tmp_collections')
-
-        string = """
-            insert into nielsen_map.collections (unified_collection_id, name, type, release_date)
-            select unified_collection_id, name, type, release_date
-            from nielsen_map.collections
-            on conflict (unified_collection_id) do update
-            set
-                name = excluded.name,
-                type = excluded.type,
-                release_date = excluded.release_date;
-        """
-        self.db.execute(string)
-
-        string = """
-            drop table tmp_collections;
-        """
-        self.db.execute(string)
+        self.db.big_insert(df, 'nielsen_map.collections')
 
     def processMap(self):
 
@@ -358,22 +325,10 @@ class NielsenWeeklyMappingTablePipeline(PipelineBase):
             df = df.sample(1000).reset_index(drop=True)
 
         string = """
-            create temp table tmp_map (like nielsen_map.map);
+            delete from nielsen_map.map
         """
         self.db.execute(string)
-        self.db.big_insert(df, 'tmp_map')
-
-        string = """
-            insert into nielsen_map.map (unified_song_id, unified_artist_id, unified_collection_id)
-            select unified_song_id, unified_artist_id, unified_collection_id from tmp_map
-            on conflict do nothing;
-        """
-        self.db.execute(string)
-
-        string = """
-            drop table tmp_map;
-        """
-        self.db.execute(string)
+        self.db.big_insert(df, 'nielsen_map.map')
 
     def processSongs(self):
 
@@ -383,19 +338,10 @@ class NielsenWeeklyMappingTablePipeline(PipelineBase):
             df = df.sample(1000).reset_index(drop=True)
 
         string = """
-            create temp table tmp_songs (like nielsen_map.songs);
+            delete from nielsen_map.songs
         """
         self.db.execute(string)
-        self.db.big_insert(df, 'tmp_songs')
-
-        string = """
-            insert into nielsen_map.songs (unified_song_id, isrc, title, release_date)
-            select unified_song_id, isrc, title, release_date from tmp_songs
-            on conflict (unified_song_id, isrc) do update
-            set
-                title = excluded.title,
-                release_date = excluded.release_date;
-        """
+        self.db.big_insert(df, 'nielsen_map.songs')
 
     def updateArtistTrackCount(self):
 
