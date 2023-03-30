@@ -421,17 +421,15 @@ class NielsenWeeklyMappingTablePipeline(PipelineBase):
             from tc
             where m.id = tc.id;
 
-            with tmp as (
-                select
-                    m.id as song_id,
-                    map.unified_collection_id
-                from nielsen_song.meta m
-                left join nielsen_map.map on m.unified_song_id = map.unified_song_id
-                group by m.id, map.unified_collection_id
-            )
-
             insert into nielsen_song.track_collections (song_id, unified_collection_id)
-            select song_id, unified_collection_id from tmp;
+            select
+                m.id,
+                map.unified_collection_id
+            from nielsen_song.meta m
+            left join nielsen_map.map on m.unified_song_id = map.unified_song_id
+            where map.unified_collection_id is not null
+            group by m.id, map.unified_collection_id
+            on conflict (song_id, unified_collection_id) do nothing
         """
         self.db.execute(string)
 
