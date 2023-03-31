@@ -482,6 +482,50 @@ class NielsenDailyGlobalPipeline(PipelineBase):
 
         self.add_function(processFunc, file['filename'])
 
+    def updateGlobalStreams(self):
+
+        string = """
+            insert into nielsen_global.streams (global_id, date, streams)
+            select
+                global_id,
+                date,
+                streams
+            from (
+                select
+                    global_id,
+                    date,
+                    sum(streams) as streams
+                from (
+                    select
+                        s.date,
+                        g.global_id,
+                        coalesce(s.streams, 0) as streams
+                    from (
+                        select
+                            artist_id,
+                            date,
+                            unnest(array[
+                                'austria', 'belgium', 'croatia', 'czech_republic', 'denmark', 'finland', 'france', 'germany', 'iceland', 'ireland', 'italy', 'luxembourg', 'netherlands', 'norway', 'poland', 'portugal', 'spain', 'sweden', 'switzerland', 'united_kingdom', 'japan', 'korea', 'australia', 'hong_kong', 'indonesia', 'malaysia', 'new_zealand', 'philippines', 'singapore', 'taiwan', 'thailand', 'vietnam', 'argentina', 'bolivia', 'brazil', 'chile', 'colombia', 'ecuador', 'mexico', 'peru', 'greece', 'hungary', 'india', 'romania', 'slovakia', 'south_africa', 'turkey'
+                            ]) as country,
+                            unnest(array[
+                                coalesce(austria, 0), coalesce(belgium, 0), coalesce(croatia, 0), coalesce(czech_republic, 0), coalesce(denmark, 0), coalesce(finland, 0), coalesce(france, 0), coalesce(germany, 0), coalesce(iceland, 0), coalesce(ireland, 0), coalesce(italy, 0), coalesce(luxembourg, 0), coalesce(netherlands, 0), coalesce(norway, 0), coalesce(poland, 0), coalesce(portugal, 0), coalesce(spain, 0), coalesce(sweden, 0), coalesce(switzerland, 0), coalesce(united_kingdom, 0), coalesce(japan, 0), coalesce(korea, 0), coalesce(australia, 0), coalesce(hong_kong, 0), coalesce(indonesia, 0), coalesce(malaysia, 0), coalesce(new_zealand, 0), coalesce(philippines, 0), coalesce(singapore, 0), coalesce(taiwan, 0), coalesce(thailand, 0), coalesce(vietnam, 0), coalesce(argentina, 0), coalesce(bolivia, 0), coalesce(brazil, 0), coalesce(chile, 0), coalesce(colombia, 0), coalesce(ecuador, 0), coalesce(mexico, 0), coalesce(peru, 0), coalesce(greece, 0), coalesce(hungary, 0), coalesce(india, 0), coalesce(romania, 0), coalesce(slovakia, 0), coalesce(south_africa, 0), coalesce(turkey, 0)
+                            ]) as streams
+                        from nielsen_artist.streams
+                        where date > current_date - interval '2 weeks'
+                    ) s
+                    join (
+                        select gs.*, m.name as country
+                        from nielsen_artist.global_stats gs
+                        left join nielsen_global.meta m on gs.global_id = m.id
+                    ) g on g.artist_id = s.artist_id and g.country = s.country
+                ) q
+                group by global_id, date
+            ) q
+            on conflict (global_id, date) do update
+            set streams = excluded.streams
+        """
+        self.db.execute(string)
+    
     def build(self):
 
         print('Building function structure...')
@@ -498,6 +542,9 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         # Create a process function for each file separately
         for file in files:
             self.addProcessFuncFromFile(file)
+
+        if len(files) > 0:
+            self.add_function(self.updateGlobalStreams, 'Update Global Aggregated Streams')
 
     def test_build(self):
 

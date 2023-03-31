@@ -561,6 +561,9 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 rtd_streams = excluded.rtd_streams,
                 digital_song_sales_tw = excluded.digital_song_sales_tw;
 
+            drop table ex_us;
+            drop table global;
+
             create temp table ex_us as (
                 select
                     gm.id as global_id,
