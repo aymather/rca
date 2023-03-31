@@ -196,7 +196,6 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         atd_name = df.filter(regex='Streaming On-Demand Total - ATD').columns.tolist()[0]
         rename_columns = {
             'Country': 'country',
-            'UnifiedArtistID': 'unified_artist_id',
             'UnifiedSongID': 'unified_song_id',
             'Digital Song Sales - TP': 'digital_song_sales_tw',
             'Streaming On-Demand Total - TP': 'tw_streams',
@@ -209,6 +208,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
 
         # Drop unnecessary columns
         drop_columns = [
+            'UnifiedArtistID',
             'Country Code',
             'WeekID',
             'WeekEndingDate',
@@ -224,7 +224,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         df.drop(columns=drop_columns, inplace=True)
 
         # Drop duplicates just in case
-        df = df.drop_duplicates(subset=['unified_artist_id', 'unified_song_id']).reset_index(drop=True)
+        df = df.drop_duplicates(subset=['unified_song_id'], keep='first').reset_index(drop=True)
 
         # Transform the country name to what we have in our db so we can match it later
         df['country'] = df['country'].str.lower()
@@ -239,7 +239,6 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         df = df.astype({
             'country': 'str',
             'rnk': 'int',
-            'unified_artist_id': 'str',
             'unified_song_id': 'str',
             'tw_streams': 'int',
             'pct_chg': 'float',
@@ -331,27 +330,23 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         
     def songUpdates(self, df):
 
-        # Now we need to get the global_id and the artist_id
+        # Now we need to get the global_id
         string = """
             create temp table tmp_songs (
-                unified_artist_id text,
                 unified_song_id text,
                 country text
             );
         """
         self.db.execute(string)
-        self.db.big_insert(df[['country', 'unified_artist_id', 'unified_song_id']], 'tmp_songs')
+        self.db.big_insert(df[['country', 'unified_song_id']], 'tmp_songs')
 
         string = """
             select
                 gm.id as global_id,
-                am.id as artist_id,
                 sm.id as song_id,
                 ts.country,
-                ts.unified_artist_id,
                 ts.unified_song_id
             from tmp_songs ts
-            join nielsen_artist.meta am on ts.unified_artist_id = am.unified_artist_id
             join nielsen_song.meta sm on ts.unified_song_id = sm.unified_song_id
             join nielsen_global.meta gm on ts.country = gm.name
         """
@@ -361,16 +356,15 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         self.db.execute(string)
 
         # Add the new ids onto the dataframe
-        df = pd.merge(df, meta, on=['country', 'unified_artist_id', 'unified_song_id'])
+        df = pd.merge(df, meta, on=['country', 'unified_song_id'])
 
         # Extract only the columns we need
-        df = df[['global_id', 'artist_id', 'song_id', 'rnk', 'tw_streams', 'lw_streams', 'pct_chg', 'ytd_streams', 'rtd_streams', 'digital_song_sales_tw']]
+        df = df[['global_id', 'song_id', 'rnk', 'tw_streams', 'lw_streams', 'pct_chg', 'ytd_streams', 'rtd_streams', 'digital_song_sales_tw']]
 
         # Upsert new data
         string = """
             create temp table tmp_songs (
                 global_id bigint,
-                artist_id bigint,
                 song_id bigint,
                 rnk int,
                 tw_streams int,
@@ -388,7 +382,6 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
             insert into nielsen_song.global_stats
             select
                 global_id,
-                artist_id,
                 song_id,
                 rnk,
                 tw_streams,
@@ -398,7 +391,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 rtd_streams,
                 digital_song_sales_tw
             from tmp_songs
-            on conflict (global_id, artist_id, song_id) do update
+            on conflict (global_id, song_id) do update
             set
                 rnk = excluded.rnk,
                 tw_streams = excluded.tw_streams,
@@ -498,6 +491,145 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
 
         self.add_function(processFunc, file['filename'])
     
+    def updateGlobalAndExUs(self):
+
+        string = """
+            create temp table ex_us as (
+                select
+                    gm.id as global_id,
+                    q.*,
+                    row_number() over (order by tw_streams desc) as rnk,
+                    case
+                        when lw_streams = 0 then 0
+                        else round(round(tw_streams::numeric - lw_streams::numeric) / lw_streams::numeric * 100, 2)
+                    end as pct_chg
+                from (
+                    select
+                        artist_id,
+                        sum(tw_streams) as tw_streams,
+                        sum(lw_streams) as lw_streams,
+                        sum(ytd_streams) as ytd_streams,
+                        sum(rtd_streams) as rtd_streams,
+                        sum(digital_song_sales_tw) as digital_song_sales_tw
+                    from nielsen_artist.global_stats
+                    group by artist_id
+                ) q
+                cross join ( select * from nielsen_global.meta where country_code = 'EX-US' ) gm
+            );
+
+            create temp table global as (
+                select
+                    gm.id as global_id,
+                    q.*,
+                    row_number() over (order by tw_streams desc) as rnk,
+                    case
+                        when lw_streams = 0 then 0
+                        else round(round(tw_streams::numeric - lw_streams::numeric) / lw_streams::numeric * 100, 2)
+                    end as pct_chg
+                from (
+                    select
+                        coalesce(st.artist_id, ex.artist_id) as artist_id,
+                        coalesce(ex.tw_streams, 0) + coalesce(st.tw_streams, 0) as tw_streams,
+                        coalesce(ex.lw_streams, 0) + coalesce(st.lw_streams, 0) as lw_streams
+                    from ex_us ex
+                    full outer join nielsen_artist.__stats st on ex.artist_id = st.artist_id
+                ) q
+                cross join ( select * from nielsen_global.meta where country_code = 'GLOBAL' ) gm
+            );
+
+            insert into nielsen_artist.global_stats (global_id, artist_id, rnk, tw_streams, lw_streams, pct_chg, ytd_streams, rtd_streams, digital_song_sales_tw)
+            select global_id, artist_id, rnk, tw_streams, lw_streams, pct_chg, ytd_streams, rtd_streams, digital_song_sales_tw from ex_us
+            on conflict (global_id, artist_id) do update
+            set
+                rnk = excluded.rnk,
+                tw_streams = excluded.tw_streams,
+                lw_streams = excluded.lw_streams,
+                pct_chg = excluded.pct_chg,
+                ytd_streams = excluded.ytd_streams,
+                rtd_streams = excluded.rtd_streams,
+                digital_song_sales_tw = excluded.digital_song_sales_tw;
+
+            insert into nielsen_artist.global_stats (global_id, artist_id, rnk, tw_streams, lw_streams, pct_chg, ytd_streams, rtd_streams, digital_song_sales_tw)
+            select global_id, artist_id, rnk, tw_streams, lw_streams, pct_chg, 0, 0, 0 from global
+            on conflict (global_id, artist_id) do update
+            set
+                rnk = excluded.rnk,
+                tw_streams = excluded.tw_streams,
+                lw_streams = excluded.lw_streams,
+                pct_chg = excluded.pct_chg,
+                ytd_streams = excluded.ytd_streams,
+                rtd_streams = excluded.rtd_streams,
+                digital_song_sales_tw = excluded.digital_song_sales_tw;
+
+            create temp table ex_us as (
+                select
+                    gm.id as global_id,
+                    q.*,
+                    row_number() over (order by tw_streams desc) as rnk,
+                    case
+                        when lw_streams = 0 then 0
+                        else round(round(tw_streams::numeric - lw_streams::numeric) / lw_streams::numeric * 100, 2)
+                    end as pct_chg
+                from (
+                    select
+                        song_id,
+                        sum(tw_streams) as tw_streams,
+                        sum(lw_streams) as lw_streams,
+                        sum(ytd_streams) as ytd_streams,
+                        sum(rtd_streams) as rtd_streams,
+                        sum(digital_song_sales_tw) as digital_song_sales_tw
+                    from nielsen_song.global_stats
+                    group by song_id
+                ) q
+                cross join ( select * from nielsen_global.meta where country_code = 'EX-US' ) gm
+            );
+
+            create temp table global as (
+                select
+                    gm.id as global_id,
+                    q.*,
+                    row_number() over (order by tw_streams desc) as rnk,
+                    case
+                        when lw_streams = 0 then 0
+                        else round(round(tw_streams::numeric - lw_streams::numeric) / lw_streams::numeric * 100, 2)
+                    end as pct_chg
+                from (
+                    select
+                        coalesce(st.song_id, ex.song_id) as song_id,
+                        coalesce(ex.tw_streams, 0) + coalesce(st.tw_streams, 0) as tw_streams,
+                        coalesce(ex.lw_streams, 0) + coalesce(st.lw_streams, 0) as lw_streams
+                    from ex_us ex
+                    full outer join nielsen_song.__stats st on ex.song_id = st.song_id
+                ) q
+                cross join ( select * from nielsen_global.meta where country_code = 'GLOBAL' ) gm
+            );
+
+            insert into nielsen_song.global_stats (global_id, song_id, rnk, tw_streams, lw_streams, pct_chg, ytd_streams, rtd_streams, digital_song_sales_tw)
+            select global_id, song_id, rnk, tw_streams, lw_streams, pct_chg, ytd_streams, rtd_streams, digital_song_sales_tw from ex_us
+            on conflict (global_id, song_id) do update
+            set
+                rnk = excluded.rnk,
+                tw_streams = excluded.tw_streams,
+                lw_streams = excluded.lw_streams,
+                pct_chg = excluded.pct_chg,
+                ytd_streams = excluded.ytd_streams,
+                rtd_streams = excluded.rtd_streams,
+                digital_song_sales_tw = excluded.digital_song_sales_tw;
+
+            insert into nielsen_song.global_stats (global_id, song_id, rnk, tw_streams, lw_streams, pct_chg, ytd_streams, rtd_streams, digital_song_sales_tw)
+            select global_id, song_id, rnk, tw_streams, lw_streams, pct_chg, 0, 0, 0 from global
+            on conflict (global_id, song_id) do update
+            set
+                rnk = excluded.rnk,
+                tw_streams = excluded.tw_streams,
+                lw_streams = excluded.lw_streams,
+                pct_chg = excluded.pct_chg,
+                ytd_streams = excluded.ytd_streams,
+                rtd_streams = excluded.rtd_streams,
+                digital_song_sales_tw = excluded.digital_song_sales_tw;
+        """
+        self.db.execute(string)
+    
     def build(self):
         
         files = self.getNewWeeklyFiles()
@@ -507,6 +639,8 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
 
         for file in files:
             self.addProcessFunc(file)
+
+        self.add_function(self.updateGlobalAndExUs, 'Update Global & Ex US')
 
     def test_build(self):
         pass
