@@ -647,6 +647,50 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         """
         self.db.execute(string)
     
+    def updateGlobalCorrelations(self):
+
+        string = """
+            with territory_streams as (
+                select
+                    global_id,
+                    artist_id,
+                    tw_streams
+                from nielsen_artist.global_stats
+            ), territory_artist_counts as (
+                select
+                    global_id,
+                    count(distinct artist_id) as total_artists
+                from territory_streams
+                group by global_id
+            ), shared_artists as (
+                select
+                    t1.global_id,
+                    t2.global_id as c_global_id,
+                    count(distinct t1.artist_id) as shared_artists_count
+                from territory_streams t1
+                join territory_streams t2 on t1.artist_id = t2.artist_id and t1.global_id <> t2.global_id
+                group by t1.global_id, t2.global_id
+            ), correlations as (
+                select
+                    s.global_id,
+                    s.c_global_id,
+                    round(100.0 * s.shared_artists_count / least(c1.total_artists, c2.total_artists)) as correlation,
+                    s.shared_artists_count as instance_count
+                from shared_artists s
+                join territory_artist_counts c1 on s.global_id = c1.global_id
+                join territory_artist_counts c2 on s.c_global_id = c2.global_id
+                order by s.global_id, s.c_global_id
+            )
+
+            insert into nielsen_global.correlations (global_id, c_global_id, correlation, instance_count)
+            select global_id, c_global_id, correlation, instance_count from correlations
+            on conflict (global_id, c_global_id) do update
+            set
+                correlation = excluded.correlation,
+                instance_count = excluded.instance_count;
+        """
+        self.db.execute(string)
+    
     def build(self):
         
         files = self.getNewWeeklyFiles()
@@ -659,6 +703,10 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
 
         self.add_function(self.updateGlobalAndExUs, 'Update Global & Ex US')
         self.add_function(self.updateGlobalAggregates, 'Update Global Aggregated Stats')
+        
+        # If we processed new global files, we need to update the correlations graph
+        if len(files) > 0:
+            self.add_function(self.updateGlobalCorrelations, 'Update Global Correlations')
 
     def test_build(self):
         pass
