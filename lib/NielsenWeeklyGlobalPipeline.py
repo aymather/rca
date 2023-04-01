@@ -622,6 +622,10 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
             with data as (
                 select
                     q.*,
+                    case
+                        when q.lw_streams = 0 then 0
+                        else round(round(q.tw_streams::numeric - q.lw_streams::numeric) / q.lw_streams::numeric * 100, 2)
+                    end as pct_chg,
                     row_number() over (order by tw_streams desc) as rnk
                 from (
                     select
@@ -639,6 +643,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
             set
                 tw_streams = data.tw_streams,
                 lw_streams = data.lw_streams,
+                pct_chg = data.pct_chg,
                 ytd_streams = data.ytd_streams,
                 rtd_streams = data.rtd_streams,
                 rnk = data.rnk
