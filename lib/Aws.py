@@ -26,7 +26,7 @@ class Aws:
 
         raise Exception (f'Error connecting to s3 bucket with access key: {AWS_ACCESS_KEY}')
 
-    def upload_s3(self, local_fullfile: str, s3_fullfile: str) -> bool:
+    def upload_s3(self, local_fullfile, s3_fullfile):
 
         """
             Upload a local file to the s3 bucket
@@ -53,7 +53,7 @@ class Aws:
             print(str(e))
             return False
 
-    def delete_file_s3(self, s3_fullfile: str):
+    def delete_file_s3(self, s3_fullfile):
 
         if self.s3 is None:
             raise Exception('Aws s3 client not connected, you must first call self.connect_s3()')

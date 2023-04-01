@@ -6,7 +6,6 @@ from abc import abstractmethod, ABC
 from .settings import get_settings
 from .Db import Db
 from .Aws import Aws
-from typing import Callable
 import os
 
 class PipelineBase(ABC):
@@ -74,13 +73,13 @@ class PipelineBase(ABC):
         self.aws.connect_s3()
 
     # Simple functions to print in colors our major events
-    def printFnComplete(self, msg: str = '') -> None:
+    def printFnComplete(self, msg):
         print(self.fnCompleteColor(msg))
 
-    def printSuccess(self, msg: str = '') -> None:
+    def printSuccess(self, msg):
         print(self.successColor(msg))
 
-    def add_function(self, func: Callable, name: str, error_on_failure: bool = True) -> None:
+    def add_function(self, func, name, error_on_failure = True):
 
         """
             Function object outline:
@@ -98,7 +97,7 @@ class PipelineBase(ABC):
             'error_on_failure': error_on_failure
         })
 
-    def add_report(self, name: str, success: bool, error: str):
+    def add_report(self, name, success, error):
         self.report.append({
             'name': name,
             'success': success,

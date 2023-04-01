@@ -567,7 +567,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         
         return meta, streams
 
-    def artistsDbUpdates(self, meta: pd.DataFrame, streams: pd.DataFrame):
+    def artistsDbUpdates(self, meta, streams):
 
         # META
         string = """
@@ -964,7 +964,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         
         return meta, streams
 
-    def songsDbUpdates(self, meta: pd.DataFrame, streams: pd.DataFrame):
+    def songsDbUpdates(self, meta, streams):
 
         # META / REPORTS / ISRC UPDATES
         string = """
@@ -1501,7 +1501,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         # Insert new spotify information
         self.db.big_insert(df, 'nielsen_song.spotify')
 
-    def bulkGetSpotifyArtistInfo(self, df, spotify: Spotify) -> pd.DataFrame:
+    def bulkGetSpotifyArtistInfo(self, df, spotify):
 
         """
             Bulk add all the artists by spotify_artist_id
@@ -1536,7 +1536,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def getSpotifyArtistInfo(self, df, spotify: Spotify) -> pd.DataFrame:
+    def getSpotifyArtistInfo(self, df, spotify):
 
         """
             Manually search artists who didn't have a spotify artist id
@@ -1595,7 +1595,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def getSpotifyPopularTrackId(self, df, spotify: Spotify) -> pd.DataFrame:
+    def getSpotifyPopularTrackId(self, df, spotify):
 
         """
             Attach the ids of the most popular album / track.
@@ -1629,7 +1629,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         return df
 
-    def getSpotifyAlbumInfo(self, df, spotify: Spotify) -> pd.DataFrame:
+    def getSpotifyAlbumInfo(self, df, spotify):
 
         """
             Takes the 'spotify_popular_track_id' column and attaches copyright info about that track
@@ -2433,7 +2433,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             return df[[col]]
 
-        def updateInstagramChart(df: pd.DataFrame):
+        def updateInstagramChart(df):
 
             # Get the instagram data from reporting db
             instagram_ids = get_ids(df, 'instagram_id')
@@ -2602,7 +2602,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             """
             self.db.execute(string)
 
-        def updateSpotifyChart(df: pd.DataFrame):
+        def updateSpotifyChart(df):
 
             # Get the spotify data from reporting db
             spotify_ids = get_ids(df, 'spotify_id')
@@ -2764,7 +2764,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             """
             self.db.execute(string)
         
-        def updateTiktokChart(df: pd.DataFrame):
+        def updateTiktokChart(df):
 
             # Get the instagram data from reporting db
             tiktok_ids = get_ids(df, 'tiktok_id')

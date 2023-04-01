@@ -12,7 +12,7 @@ SMTP_SENDER = 'graphitti@sonymusic.com'
 
 class Email:
 
-    def send(self, receivers: list[str], subject: str, body: str, files = []):
+    def send(self, receivers, subject, body, files = []):
 
         """
             Send an email to any number of people, optionally with file attachments.

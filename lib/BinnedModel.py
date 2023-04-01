@@ -1,4 +1,3 @@
-from typing import Tuple
 from .Db import Db
 import matplotlib.pyplot as plt
 from psycopg2 import sql
@@ -19,14 +18,14 @@ class BinnedModel:
 
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name):
 
         self.name = name
         self.model = self.fetch_model(name)
         self.max_bin = self.model['bin_max'].max()
         self.default_model = self.model[self.model['bin_max'] == self.max_bin].reset_index(drop=True)
 
-    def fetch_model(self, name) -> pd.DataFrame:
+    def fetch_model(self, name):
 
         """
             Get the model from the database
@@ -50,7 +49,7 @@ class BinnedModel:
             raise Exception(f'Error getting model with name {name} are you sure it exists?')
 
     @staticmethod
-    def build_db_model(df: pd.DataFrame, name: str) -> None:
+    def build_db_model(df, name):
 
         """
             Builds a model into our database. You must pass a dataframe with the following columns:
@@ -100,7 +99,7 @@ class BinnedModel:
         print(f'Model {name} created!')
 
     @staticmethod
-    def delete(name: str) -> None:
+    def delete(name):
 
         table = sql.Identifier('models', name)
         string = sql.SQL('drop table if exists {}').format(table)
@@ -116,7 +115,7 @@ class BinnedModel:
         db.disconnect()
 
     @staticmethod
-    def create(df: pd.DataFrame, name: str) -> None:
+    def create(df, name):
 
         """
 
@@ -138,7 +137,7 @@ class BinnedModel:
         df = df[['count', 'mean', 'std', 'bin_min', 'bin_max']].reset_index(drop=True)
         BinnedModel.build_db_model(df, name)
 
-    def get_bin(self, x: int) -> Tuple[float, float]:
+    def get_bin(self, x):
 
         if x >= self.max_bin:
             return self.default_model.loc[0, 'mean'], self.default_model.loc[0, 'std']
@@ -151,7 +150,7 @@ class BinnedModel:
         m = self.model[mask].reset_index(drop=True)
         return m.loc[0, 'mean'], m.loc[0, 'std']
 
-    def fit(self, x: int, y: float) -> Tuple[float, float, float]:
+    def fit(self, x, y):
 
         """
         
@@ -175,7 +174,7 @@ class BinnedModel:
 
         return mean, std, z_score
 
-    def visualize(self) -> None:
+    def visualize(self):
 
         m = self.model['mean']
         std = self.model['std']

@@ -4,7 +4,6 @@ import pandas as pd
 import requests
 import spotipy
 import random
-from typing import List
 
 
 def request_wrapper(func):
@@ -98,7 +97,7 @@ class Spotify:
         return None
 
     @request_wrapper
-    def searchArtists(self, q: str, limit: int = 25):
+    def searchArtists(self, q, limit = 25):
 
         """
             Generic search function to make requests to spotify for artists.
@@ -114,7 +113,7 @@ class Spotify:
         return items
 
     @request_wrapper
-    def searchTracks(self, q: str, limit: int = 25):
+    def searchTracks(self, q, limit = 25):
 
         """
             Generic search function to make requets to spotify for tracks.
@@ -130,7 +129,7 @@ class Spotify:
         return items
     
     @request_wrapper
-    def albums(self, album_ids: List[str]):
+    def albums(self, album_ids):
         
         res = self.sp.albums(album_ids)
 
@@ -142,7 +141,7 @@ class Spotify:
         return res
 
     @request_wrapper
-    def tracks(self, track_ids: List[str]):
+    def tracks(self, track_ids):
 
         res = self.sp.tracks(track_ids)
 
@@ -154,7 +153,7 @@ class Spotify:
         return res
 
     @request_wrapper
-    def artists(self, artist_ids: List[str]):
+    def artists(self, artist_ids):
 
         res = self.sp.artists(artist_ids)
 
@@ -166,7 +165,7 @@ class Spotify:
         return res
 
     @request_wrapper
-    def audio_features(self, track_ids: List[str]):
+    def audio_features(self, track_ids):
 
         res = self.sp.audio_features(track_ids)
 
