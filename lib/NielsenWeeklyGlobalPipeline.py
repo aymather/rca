@@ -137,6 +137,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         # You do actually need to do this first because the 'Digital Song Sales' regex later, just trust me
         atd_name = df.filter(regex='Streaming On-Demand Total - ATD').columns.tolist()[0]
         rename_columns = {
+            'Artist': 'artist',
             'Country': 'country',
             'UnifiedArtistID': 'unified_artist_id',
             'Digital Song Sales - TP': 'digital_song_sales_tw',
@@ -153,7 +154,6 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
             'Country Code',
             'WeekID',
             'WeekEndingDate',
-            'Artist',
             'Rank',
             'Digital Song Sales - % Change LP',
             'Digital Song Sales - LP',
@@ -167,6 +167,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
 
         # Transform the country name to what we have in our db so we can match it later
         df['country'] = df['country'].str.lower()
+        df['country'] = df['country'].str.replace(' ', '_') # also for some reason "hong kong" needs underscores...?
 
         # Remove the percent character from the 'pct_chg' column
         df['pct_chg'] = df['pct_chg'].str.replace('%', '')
@@ -176,6 +177,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
 
         # Clean types
         df = df.astype({
+            'artist': 'str',
             'country': 'str',
             'rnk': 'int',
             'unified_artist_id': 'str',
@@ -197,6 +199,9 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         rename_columns = {
             'Country': 'country',
             'UnifiedSongID': 'unified_song_id',
+            'Artist': 'artist',
+            'Title': 'title',
+            'Top ISRC': 'isrc',
             'Digital Song Sales - TP': 'digital_song_sales_tw',
             'Streaming On-Demand Total - TP': 'tw_streams',
             'Streaming On-Demand Total - % Change LP': 'pct_chg',
@@ -212,9 +217,6 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
             'Country Code',
             'WeekID',
             'WeekEndingDate',
-            'Artist',
-            'Title',
-            'Top ISRC',
             'Rank',
             'Digital Song Sales - % Change LP',
             'Digital Song Sales - LP',
@@ -228,6 +230,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
 
         # Transform the country name to what we have in our db so we can match it later
         df['country'] = df['country'].str.lower()
+        df['country'] = df['country'].str.replace(' ', '_')
 
         # Remove the percent character from the 'pct_chg' column
         df['pct_chg'] = df['pct_chg'].str.replace('%', '')
@@ -252,42 +255,11 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
 
     def artistUpdates(self, df):
 
-        # Now we need to get the global_id and the artist_id
         string = """
             create temp table tmp_artists (
+                country text,
                 unified_artist_id text,
-                country text
-            );
-        """
-        self.db.execute(string)
-        self.db.big_insert(df[['country', 'unified_artist_id']], 'tmp_artists')
-
-        string = """
-            select
-                gm.id as global_id,
-                m.id as artist_id,
-                ta.country,
-                ta.unified_artist_id
-            from tmp_artists ta
-            join nielsen_artist.meta m on ta.unified_artist_id = m.unified_artist_id
-            join nielsen_global.meta gm on ta.country = gm.name
-        """
-        meta = self.db.execute(string)
-
-        string = 'drop table tmp_artists'
-        self.db.execute(string)
-
-        # Add the new ids onto the dataframe
-        df = pd.merge(df, meta, on=['country', 'unified_artist_id'])
-
-        # Extract only the columns we need
-        df = df[['global_id', 'artist_id', 'rnk', 'tw_streams', 'lw_streams', 'pct_chg', 'ytd_streams', 'rtd_streams', 'digital_song_sales_tw']]
-
-        # Upsert new data
-        string = """
-            create temp table tmp_artists (
-                global_id bigint,
-                artist_id bigint,
+                artist text,
                 rnk int,
                 tw_streams int,
                 lw_streams int,
@@ -301,6 +273,26 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         self.db.big_insert(df, 'tmp_artists')
 
         string = """
+            insert into nielsen_artist.meta (artist, unified_artist_id, is_global)
+            select artist, unified_artist_id, true from tmp_artists
+            on conflict (unified_artist_id) do nothing;
+
+            create temp table tmp_global_data as (
+                select
+                    gm.id as global_id,
+                    m.id as artist_id,
+                    ta.rnk,
+                    ta.tw_streams,
+                    ta.lw_streams,
+                    ta.pct_chg,
+                    ta.ytd_streams,
+                    ta.rtd_streams,
+                    ta.digital_song_sales_tw
+                from tmp_artists ta
+                left join nielsen_artist.meta m on ta.unified_artist_id = m.unified_artist_id
+                left join nielsen_global.meta gm on ta.country = gm.name
+            );
+
             insert into nielsen_artist.global_stats
             select
                 global_id,
@@ -312,7 +304,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 ytd_streams,
                 rtd_streams,
                 digital_song_sales_tw
-            from tmp_artists
+            from tmp_global_data
             on conflict (global_id, artist_id) do update
             set
                 rnk = excluded.rnk,
@@ -321,51 +313,22 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 pct_chg = excluded.pct_chg,
                 ytd_streams = excluded.ytd_streams,
                 rtd_streams = excluded.rtd_streams,
-                digital_song_sales_tw = excluded.digital_song_sales_tw
-        """
-        self.db.execute(string)
+                digital_song_sales_tw = excluded.digital_song_sales_tw;
 
-        string = 'drop table tmp_artists'
+            drop table tmp_global_data;
+            drop table tmp_artists;
+        """
         self.db.execute(string)
         
     def songUpdates(self, df):
 
-        # Now we need to get the global_id
         string = """
             create temp table tmp_songs (
+                country text,
                 unified_song_id text,
-                country text
-            );
-        """
-        self.db.execute(string)
-        self.db.big_insert(df[['country', 'unified_song_id']], 'tmp_songs')
-
-        string = """
-            select
-                gm.id as global_id,
-                sm.id as song_id,
-                ts.country,
-                ts.unified_song_id
-            from tmp_songs ts
-            join nielsen_song.meta sm on ts.unified_song_id = sm.unified_song_id
-            join nielsen_global.meta gm on ts.country = gm.name
-        """
-        meta = self.db.execute(string)
-
-        string = 'drop table tmp_songs'
-        self.db.execute(string)
-
-        # Add the new ids onto the dataframe
-        df = pd.merge(df, meta, on=['country', 'unified_song_id'])
-
-        # Extract only the columns we need
-        df = df[['global_id', 'song_id', 'rnk', 'tw_streams', 'lw_streams', 'pct_chg', 'ytd_streams', 'rtd_streams', 'digital_song_sales_tw']]
-
-        # Upsert new data
-        string = """
-            create temp table tmp_songs (
-                global_id bigint,
-                song_id bigint,
+                artist text,
+                title text,
+                isrc text,
                 rnk int,
                 tw_streams int,
                 lw_streams int,
@@ -379,6 +342,26 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         self.db.big_insert(df, 'tmp_songs')
 
         string = """
+            insert into nielsen_song.meta (artist, title, unified_song_id, isrc, is_global)
+            select artist, title, unified_song_id, isrc, true from tmp_songs
+            on conflict (unified_song_id) do nothing;
+
+            create temp table tmp_global_data as (
+                select
+                    gm.id as global_id,
+                    m.id as song_id,
+                    ta.rnk,
+                    ta.tw_streams,
+                    ta.lw_streams,
+                    ta.pct_chg,
+                    ta.ytd_streams,
+                    ta.rtd_streams,
+                    ta.digital_song_sales_tw
+                from tmp_songs ta
+                left join nielsen_song.meta m on ta.unified_song_id = m.unified_song_id
+                left join nielsen_global.meta gm on ta.country = gm.name
+            );
+
             insert into nielsen_song.global_stats
             select
                 global_id,
@@ -390,7 +373,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 ytd_streams,
                 rtd_streams,
                 digital_song_sales_tw
-            from tmp_songs
+            from tmp_global_data
             on conflict (global_id, song_id) do update
             set
                 rnk = excluded.rnk,
@@ -399,11 +382,11 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 pct_chg = excluded.pct_chg,
                 ytd_streams = excluded.ytd_streams,
                 rtd_streams = excluded.rtd_streams,
-                digital_song_sales_tw = excluded.digital_song_sales_tw
-        """
-        self.db.execute(string)
+                digital_song_sales_tw = excluded.digital_song_sales_tw;
 
-        string = 'drop table tmp_songs'
+            drop table tmp_global_data;
+            drop table tmp_songs;
+        """
         self.db.execute(string)
 
     def updateArtistsLastProcessed(self, file):
@@ -498,10 +481,10 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 select
                     gm.id as global_id,
                     q.*,
-                    row_number() over (order by tw_streams desc) as rnk,
+                    row_number() over (order by q.tw_streams desc) as rnk,
                     case
-                        when lw_streams = 0 then 0
-                        else round(round(tw_streams::numeric - lw_streams::numeric) / lw_streams::numeric * 100, 2)
+                        when q.lw_streams = 0 then 0
+                        else round(round(q.tw_streams::numeric - q.lw_streams::numeric) / q.lw_streams::numeric * 100, 2)
                     end as pct_chg
                 from (
                     select
@@ -521,10 +504,10 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 select
                     gm.id as global_id,
                     q.*,
-                    row_number() over (order by tw_streams desc) as rnk,
+                    row_number() over (order by q.tw_streams desc) as rnk,
                     case
-                        when lw_streams = 0 then 0
-                        else round(round(tw_streams::numeric - lw_streams::numeric) / lw_streams::numeric * 100, 2)
+                        when q.lw_streams = 0 then 0
+                        else round(round(q.tw_streams::numeric - q.lw_streams::numeric) / q.lw_streams::numeric * 100, 2)
                     end as pct_chg
                 from (
                     select
@@ -568,10 +551,10 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 select
                     gm.id as global_id,
                     q.*,
-                    row_number() over (order by tw_streams desc) as rnk,
+                    row_number() over (order by q.tw_streams desc) as rnk,
                     case
-                        when lw_streams = 0 then 0
-                        else round(round(tw_streams::numeric - lw_streams::numeric) / lw_streams::numeric * 100, 2)
+                        when q.lw_streams = 0 then 0
+                        else round(round(q.tw_streams::numeric - q.lw_streams::numeric) / q.lw_streams::numeric * 100, 2)
                     end as pct_chg
                 from (
                     select
@@ -591,10 +574,10 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 select
                     gm.id as global_id,
                     q.*,
-                    row_number() over (order by tw_streams desc) as rnk,
+                    row_number() over (order by q.tw_streams desc) as rnk,
                     case
-                        when lw_streams = 0 then 0
-                        else round(round(tw_streams::numeric - lw_streams::numeric) / lw_streams::numeric * 100, 2)
+                        when q.lw_streams = 0 then 0
+                        else round(round(q.tw_streams::numeric - q.lw_streams::numeric) / q.lw_streams::numeric * 100, 2)
                     end as pct_chg
                 from (
                     select
@@ -633,6 +616,37 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         """
         self.db.execute(string)
     
+    def updateGlobalAggregates(self):
+
+        string = """
+            with data as (
+                select
+                    q.*,
+                    row_number() over (order by tw_streams desc) as rnk
+                from (
+                    select
+                        global_id,
+                        sum(tw_streams) as tw_streams,
+                        sum(lw_streams) as lw_streams,
+                        sum(ytd_streams) as ytd_streams,
+                        sum(rtd_streams) as rtd_streams
+                    from nielsen_artist.global_stats
+                    group by global_id
+                ) q
+            )
+
+            update nielsen_global.meta m
+            set
+                tw_streams = data.tw_streams,
+                lw_streams = data.lw_streams,
+                ytd_streams = data.ytd_streams,
+                rtd_streams = data.rtd_streams,
+                rnk = data.rnk
+            from data
+            where m.id = data.global_id;
+        """
+        self.db.execute(string)
+    
     def build(self):
         
         files = self.getNewWeeklyFiles()
@@ -644,6 +658,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
             self.addProcessFunc(file)
 
         self.add_function(self.updateGlobalAndExUs, 'Update Global & Ex US')
+        self.add_function(self.updateGlobalAggregates, 'Update Global Aggregated Stats')
 
     def test_build(self):
         pass
