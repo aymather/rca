@@ -489,10 +489,10 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 from (
                     select
                         artist_id,
-                        sum(tw_streams) as tw_streams,
-                        sum(lw_streams) as lw_streams,
-                        sum(ytd_streams) as ytd_streams,
-                        sum(rtd_streams) as rtd_streams,
+                        floor(sum(tw_streams) / 1000000)::bigint as tw_streams,
+                        floor(sum(lw_streams) / 1000000)::bigint as lw_streams,
+                        floor(sum(ytd_streams) / 1000000)::bigint as ytd_streams,
+                        floor(sum(rtd_streams) / 1000000)::bigint as rtd_streams,
                         sum(digital_song_sales_tw) as digital_song_sales_tw
                     from nielsen_artist.global_stats
                     group by artist_id
@@ -559,10 +559,10 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 from (
                     select
                         song_id,
-                        sum(tw_streams) as tw_streams,
-                        sum(lw_streams) as lw_streams,
-                        sum(ytd_streams) as ytd_streams,
-                        sum(rtd_streams) as rtd_streams,
+                        floor(sum(tw_streams) / 1000000)::bigint as tw_streams,
+                        floor(sum(lw_streams) / 1000000)::bigint as lw_streams,
+                        floor(sum(ytd_streams) / 1000000)::bigint as ytd_streams,
+                        floor(sum(rtd_streams) / 1000000)::bigint as rtd_streams,
                         sum(digital_song_sales_tw) as digital_song_sales_tw
                     from nielsen_song.global_stats
                     group by song_id
