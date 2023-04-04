@@ -3646,6 +3646,83 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         df = df[mask].reset_index(drop=True)
 
+        string = """
+            create temp table unified_song_ids (
+                unified_song_id text
+            );
+        """
+        self.db.execute(string)
+        self.db.big_insert(df[['unified_song_id']], 'unified_song_ids')
+
+        string = """
+            select
+                u.unified_song_id,
+                s.date,
+                s.streams
+            from unified_song_ids u
+            left join nielsen_song.meta m on u.unified_song_id = m.unified_song_id
+            left join nielsen_song.streams s on m.id = s.song_id
+            where date < ( select value::date + interval '1 day' from nielsen_meta where id = 1 )
+                and date > ( select value::date - interval '14 days' from nielsen_meta where id = 1 )
+        """
+        streams = self.db.execute(string)
+
+        # Delete the temp table just to be neat in the cleanup
+        string = 'drop table unified_song_ids'
+        self.db.execute(string)
+
+        # Pivot the table so that each row is a song and each column is a date
+        streams = streams.pivot(index='unified_song_id', columns='date', values='streams')
+        streams.columns.name = None
+        streams = streams.reset_index()
+
+        # Columns need to be strings instead of datetime
+        streams.columns = streams.columns.astype('str')
+
+        def getDateColumnsInOrder(cols):
+            """
+            
+                Function to get the date columns as an array ordered by date
+                from most recent to least recent.
+            
+            """
+                
+            cols = cols[1:]
+            cols = sorted(cols, key=lambda x: datetime.strptime(x, '%Y-%m-%d'))
+            cols = cols[::-1]
+            
+            return cols
+
+        cols = getDateColumnsInOrder(streams.columns)
+
+        # Merge the streaming data onto the main df
+        df = pd.merge(df, streams, on='unified_song_id', how='left')
+
+        # Reformat for aaron
+        df.rename(columns={
+            'unified_song_id': 'Unifiedsongid',
+            'release_date': 'Release_date',
+            'copyrights': 'copyright',
+            'label': 'Label',
+            'core_genre': 'CoreGenre',
+            'genres': 'artist_genres',
+            'tw_oda_streams': 'TW On-Demand Audio Streams',
+            'lw_oda_streams': 'LW On-Demand Audio Streams',
+            'l2w_oda_streams': 'L2W_On_Demand_Audio_Streams',
+            'ytd_oda_streams': 'YTD On-Demand Audio Streams',
+            'tw_rolling_oda': 'TW Rolling ODA',
+            'rolling_pct_chg': 'rolling_pct_chg',
+            'lw_rolling_oda': 'LW Rolling ODA'
+        }, inplace=True)
+
+        df = df[[
+            'Unifiedsongid', 'artist', 'title', 'copyright', 'Label', 'CoreGenre',
+            'Release_date', 'artist_genres', 'instrumentalness', 'TW On-Demand Audio Streams', 'pct_chg', 'LW On-Demand Audio Streams',
+            'L2W_On_Demand_Audio_Streams', 'YTD On-Demand Audio Streams', 'TW Rolling ODA', 'rolling_pct_chg', 'LW Rolling ODA', '7_day_acc',
+            '4_day_acc', cols[0], '2_day_chg', cols[1], '3_day_chg', cols[2], cols[3],
+            cols[4], cols[5], cols[6], cols[7], cols[8], cols[9], cols[10], cols[11], cols[12], cols[13]
+        ]].reset_index(drop=True)
+
         df.to_csv(self.reports_fullfiles['nielsen_daily_audio'], index=False)
 
     def getExistingSpotifySongInfoByIsrc(self, isrcs):
