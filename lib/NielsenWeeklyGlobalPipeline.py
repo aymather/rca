@@ -495,6 +495,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                         sum(rtd_streams) as rtd_streams,
                         sum(digital_song_sales_tw) as digital_song_sales_tw
                     from nielsen_artist.global_stats
+                    where global_id not in (67, 68)
                     group by artist_id
                 ) q
                 cross join ( select * from nielsen_global.meta where country_code = 'EX-US' ) gm
@@ -565,6 +566,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                         sum(rtd_streams) as rtd_streams,
                         sum(digital_song_sales_tw) as digital_song_sales_tw
                     from nielsen_song.global_stats
+                    where global_id not in (67, 68)
                     group by song_id
                 ) q
                 cross join ( select * from nielsen_global.meta where country_code = 'EX-US' ) gm
