@@ -130,6 +130,7 @@ class Spotify:
     
     @request_wrapper
     def albums(self, album_ids):
+        """Maximum of 20 ids"""
         
         res = self.sp.albums(album_ids)
 
@@ -142,6 +143,7 @@ class Spotify:
 
     @request_wrapper
     def tracks(self, track_ids):
+        """Maximum of 50 ids"""
 
         res = self.sp.tracks(track_ids)
 
@@ -154,6 +156,7 @@ class Spotify:
 
     @request_wrapper
     def artists(self, artist_ids):
+        """Maximum of 50 ids"""
 
         res = self.sp.artists(artist_ids)
 
@@ -166,6 +169,7 @@ class Spotify:
 
     @request_wrapper
     def audio_features(self, track_ids):
+        """Maximum of 100 ids"""
 
         res = self.sp.audio_features(track_ids)
 
@@ -177,6 +181,7 @@ class Spotify:
 
     @request_wrapper
     def artist_top_tracks(self, artist_ids):
+        """Maximum of 50 ids"""
 
         res = self.sp.artist_top_tracks(artist_ids)
 
