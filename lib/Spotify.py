@@ -97,7 +97,7 @@ class Spotify:
         return None
 
     @request_wrapper
-    def searchArtists(self, q, limit = 25):
+    def searchArtists(self, q, limit=25):
 
         """
             Generic search function to make requests to spotify for artists.
@@ -113,7 +113,7 @@ class Spotify:
         return items
 
     @request_wrapper
-    def searchTracks(self, q, limit = 25):
+    def searchTracks(self, q, limit=25):
 
         """
             Generic search function to make requets to spotify for tracks.
@@ -129,7 +129,7 @@ class Spotify:
         return items
     
     @request_wrapper
-    def albums(self, album_ids):
+    def albums(self, album_ids, parse=False):
         """Maximum of 20 ids"""
         
         res = self.sp.albums(album_ids)
@@ -139,10 +139,14 @@ class Spotify:
 
         res = res['albums']
         res = [i for i in res if i is not None]
+
+        if parse is True:
+            return [transformAlbumData(i) for i in res]
+
         return res
 
     @request_wrapper
-    def tracks(self, track_ids):
+    def tracks(self, track_ids, parse=False):
         """Maximum of 50 ids"""
 
         res = self.sp.tracks(track_ids)
@@ -152,10 +156,14 @@ class Spotify:
 
         res = res['tracks']
         res = [i for i in res if i is not None]
+
+        if parse is True:
+            return [transformTrackData(i) for i in res]
+
         return res
 
     @request_wrapper
-    def artists(self, artist_ids):
+    def artists(self, artist_ids, parse=False):
         """Maximum of 50 ids"""
 
         res = self.sp.artists(artist_ids)
@@ -165,6 +173,11 @@ class Spotify:
 
         res = res['artists']
         res = [i for i in res if i is not None]
+
+        # If we don't want the raw data, transform it
+        if parse is True:
+            res = [transformArtistData(i) for i in res]
+
         return res
 
     @request_wrapper
@@ -180,17 +193,33 @@ class Spotify:
         return res
 
     @request_wrapper
-    def artist_top_tracks(self, artist_ids):
-        """Maximum of 50 ids"""
+    def artist_top_tracks(self, artist_id, parse=False):
 
-        res = self.sp.artist_top_tracks(artist_ids)
+        res = self.sp.artist_top_tracks(artist_id)
 
         if res is None:
-            raise Exception('Error getting artist top tracks with spotify artist ids: ' + ','.join(artist_ids))
+            raise Exception('Error getting artist top tracks with spotify artist ids: ' + ','.join(artist_id))
 
         res = res['tracks']
         res = [i for i in res if i is not None]
+
+        if parse is True:
+            return [transformArtistTopTrack(i) for i in res]
+
         return res
+
+    def artist_top_track(self, artist_id, parse=False):
+        """Get the top track for an artist"""
+
+        res = self.artist_top_tracks(artist_id)
+
+        if len(res) == 0:
+            return None
+
+        if parse is True:
+            return transformArtistTopTrack(artist_id, res[0])
+        
+        return res[0]
 
     def getArtistByName(self, name):
 
@@ -372,3 +401,112 @@ class Spotify:
 
         # If we still haven't found anything, return None
         return None
+    
+"""
+
+    Functions for transforming the data from the Spotify API
+
+"""
+
+def getSpotifyImage(images, size='large'):
+
+    if len(images) == 0:
+        return None
+    
+    if size == 'large':
+        images.sort(key=lambda x: x['height'], reverse=True)
+        return images[0]['url']
+    elif size == 'small':
+        images.sort(key=lambda x: x['height'])
+        return images[0]['url']
+    else:
+        return None
+
+def transformArtistData(artist):
+    """
+        Transform the artist data into a dictionary
+    """
+
+    spotify_artist_id = artist['id']
+    url = artist['external_urls']['spotify'] if 'external_urls' in artist and 'spotify' in artist['external_urls'] else None
+    followers = artist['followers']['total'] if 'followers' in artist and 'total' in artist['followers'] else None
+    genres = '/'.join(artist['genres']) if len(artist['genres']) > 0 else None
+    api_url = artist['href'] if 'href' in artist else None
+    name = artist['name'] if 'name' in artist else None
+    popularity = artist['popularity'] if 'popularity' in artist else None
+    uri = artist['uri'] if 'uri' in artist else None
+    name = artist['name'] if 'name' in artist else None
+    spotify_image = getSpotifyImage(artist['images'], size='large')
+
+    return {
+        'spotify_artist_id': spotify_artist_id,
+        'followers': followers,
+        'url': url,
+        'genres': genres,
+        'api_url': api_url,
+        'name': name,
+        'popularity': popularity,
+        'uri': uri,
+        'spotify_image': spotify_image,
+        'name': name
+    }
+
+def transformArtistTopTrack(spotify_artist_id, track):
+
+    spotify_popular_track_id = track['id']
+    spotify_popular_album_id = track['album']['id'] if 'album' in track and 'id' in track['album'] else None
+
+    return {
+        'spotify_artist_id': spotify_artist_id,
+        'spotify_popular_track_id': spotify_popular_track_id,
+        'spotify_popular_album_id': spotify_popular_album_id
+    }
+
+def transformTrackData(track):
+
+    disc_number = track['disc_number']
+    duration_ms = track['duration_ms']
+    explicit = track['explicit']
+    isrc = track['external_ids']['isrc'] if 'external_ids' in track and 'isrc' in track['external_ids'] else None
+    popularity = track['popularity']
+    spotify_track_id = track['id']
+    track_number = track['track_number']
+    name = track['name']
+    preview_url = track['preview_url']
+    spotify_album_id = track['album']['id'] if 'album' in track and 'id' in track['album'] else None
+    spotify_artist_id = track['artists'][0]['id'] if 'artists' in track and len(track['artists']) > 0 and 'id' in track['artists'][0] else None
+    spotify_image = getSpotifyImage(track['album']['images']) if 'album' in track and 'images' in track['album'] else None
+
+    return {
+        'disc_number': disc_number,
+        'duration_ms': duration_ms,
+        'explicit': explicit,
+        'isrc': isrc,
+        'popularity': popularity,
+        'spotify_track_id': spotify_track_id,
+        'track_number': track_number,
+        'name': name,
+        'preview_url': preview_url,
+        'spotify_album_id': spotify_album_id,
+        'spotify_artist_id': spotify_artist_id,
+        'spotify_image': spotify_image
+    }
+
+def getCopyrights(copyrights):
+
+    if len(copyrights) == 0:
+        return None
+
+    return '/'.join([copyright['text'] for copyright in copyrights])
+
+def transformAlbumData(album):
+
+    spotify_album_id = album['id']
+    spotify_copyrights = getCopyrights(album['copyrights'])
+    spotify_label = album['label'] if 'label' in album else None
+
+    return {
+        'spotify_album_id': spotify_album_id,
+        'spotify_copyrights': spotify_copyrights,
+        'spotify_label': spotify_label
+    }

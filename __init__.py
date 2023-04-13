@@ -1,6 +1,8 @@
 from .lib.env import *
 from .lib.functions import *
 
+from .lib.recacheSpotifyArtists import recacheSpotifyArtists
+
 from .lib.Fuzz import Fuzz
 from .lib.Spotify import Spotify
 from .lib.Db import Db

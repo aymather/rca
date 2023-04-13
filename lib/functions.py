@@ -2,9 +2,11 @@ from IPython.display import clear_output
 from datetime import datetime as dt
 from .Spotify import Spotify
 import pandas as pd
+import psutil
 import random
 import string
 import shutil
+import os
 
 
 def today():
@@ -18,7 +20,7 @@ def createId(str_size = 7):
 
 # Loop over an array in chunks
 def chunker(seq, size):
-    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+    return list(seq[pos:pos + size] for pos in range(0, len(seq), size))
 
 # Create a zip file
 def make_archive(folder_name, archive_fullfile):
@@ -30,6 +32,15 @@ def make_archive(folder_name, archive_fullfile):
     """
 
     shutil.make_archive(archive_fullfile, 'zip', folder_name)
+
+def get_memory_usage():
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    return mem_info.rss / (1024 * 1024)
+
+def print_memory_usage():
+    current_memory_usage = get_memory_usage()
+    print(f"Current memory usage: {current_memory_usage:.2f} MB")
 
 def getSpotifyTrackDataFromSpotifyUsingIsrcTitleAndArtist(df):
 
