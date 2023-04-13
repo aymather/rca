@@ -7,3 +7,4 @@ fuzzyset2
 pysftp
 spotipy
 python-dotenv
+psutil
