@@ -9,6 +9,9 @@ import shutil
 import os
 
 
+def test():
+    print('RCA Library Test Function: ' + dt.now().strftime('%Y-%m-%d %H:%M:%S'))
+
 def today():
     return dt.strftime(dt.today(), '%Y-%m-%d')
 
