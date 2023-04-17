@@ -2520,7 +2520,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             # Apply our instagram model
             model = BinnedModel('ig_gain_model')
-            xdf[['mean', 'std', 'z-score']] = xdf.apply(lambda x: pd.Series(model.fit(x.ig_followers, x.gain)), axis=1)
+            xdf = model.fit(xdf, 'ig_followers', 'gain')
 
             # Remove anything that isn't at least +2std above mean and sort by z score
             xdf = xdf[xdf['gain'] > xdf['mean'] + xdf['std'] * 2].sort_values(by='z-score', ascending=False).reset_index(drop=True)
@@ -2680,7 +2680,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             # Get and apply our model
             model = BinnedModel('spotify_gain_model')
-            xdf[['mean', 'std', 'z-score']] = xdf.apply(lambda x: pd.Series(model.fit(x.sp_followers, x.gain)), axis=1)
+            xdf = model.fit(xdf, 'sp_followers', 'gain')
 
             # Remove anything that isn't at least +2.5std above mean and sort by z score
             # This is a slightly higher threshold because we have a much wider net because we have a lot more spotify ids
@@ -2843,7 +2843,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             # Get and apply our model
             model = BinnedModel('tt_gain_model')
-            xdf[['mean', 'std', 'z-score']] = xdf.apply(lambda x: pd.Series(model.fit(x.tt_followers, x.gain)), axis=1)
+            xdf = model.fit(xdf, 'tt_followers', 'gain')
 
             # Remove anything that isn't at least +2std above mean and sort by z score
             # This is a slightly higher threshold because we have a much wider net because we have a lot more tiktok ids

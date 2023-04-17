@@ -150,29 +150,40 @@ class BinnedModel:
         m = self.model[mask].reset_index(drop=True)
         return m.loc[0, 'mean'], m.loc[0, 'std']
 
-    def fit(self, x, y):
+    def fit(self, df, group_col, gain_col):
 
         """
-        
-            x: Your grouping value. For example, when looking at instagram data, we group by
+
+            df | pandas.DataFrame | The dataframe you want to fit to the model with group_col and gain_col
+            group_col | str | Your grouping value. For example, when looking at instagram data, we group by
                 the number of instagram followers on any given day. It is the variable that you
                 used for 'binning'
-            y: Your 'gain' value. The value you are measuring as the dependent variable.
+            gain_col | str | Your 'gain' value. The value you are measuring as the dependent variable.
 
-            returns: mean y in the x-bin, std y in the x-bin, z-score of y in x-bin
+            returns: The same dataframe with added mean, std, and z_score columns
         
         """
 
-        try:
-            mean, std = self.get_bin(x)
-        except Exception as e:
-            print('x value: ')
-            print(x)
-            raise e
-        
-        z_score = (y - mean) / std
+        bins = self.model.to_dict('records')
+        for idx, bin in enumerate(bins):
 
-        return mean, std, z_score
+            if idx == len(bins) - 1:
+                
+                # If we're at the last bin, we need to include the rest of the data
+                mask = df[group_col] >= bin['bin_min']
+                df.loc[mask, ['mean', 'std']] = bin['mean'], bin['std']
+
+            else:
+                mask = (
+                    (df[group_col] > bin['bin_min']) & \
+                    (df[group_col] <= bin['bin_max'])
+                )
+
+                df.loc[mask, ['mean', 'std']] = bin['mean'], bin['std']
+
+        # Calculate the z_score for each row
+        df['z-score'] = (df[gain_col] - df['mean']) / df['std']
+        return df
 
     def visualize(self):
 
