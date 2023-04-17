@@ -35,6 +35,12 @@ class PipelineBase(ABC):
         self.db = Db(db_name)
         self.db.connect()
 
+        # Connect to the reporting db, I've decided that it's probabaly just best
+        # to make the reporting db part of the pipeline rather than have to connect to it
+        # individually so many times
+        self.reporting_db = Db('reporting_db')
+        self.reporting_db.connect()
+
         # Chalk settings
         self.fnCompleteColor = chalk.cyan
         self.successColor = chalk.green
@@ -167,6 +173,7 @@ class PipelineBase(ABC):
 
             self.commit()
             self.db.disconnect()
+            self.reporting_db.disconnect()
 
             # Print the finished time
             self.printSuccess(f'{self.__class__.__name__} success: {pipelineTime.getElapsed()}')

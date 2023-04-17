@@ -27,16 +27,13 @@ class WeeklyFunctionsPipeline(PipelineBase):
         # First extract all the spotify artist ids and drop duplicates
         spotify_artist_ids = df[['spotify_artist_id']].drop_duplicates(subset=['spotify_artist_id']).reset_index(drop=True)
 
-        reporting_db = Db('reporting_db')
-        reporting_db.connect()
-
         string = """
             create temp table ids (
                 spotify_artist_id text
             );
         """
-        reporting_db.execute(string)
-        reporting_db.big_insert_redshift(spotify_artist_ids, 'ids')
+        self.reporting_db.execute(string)
+        self.reporting_db.big_insert_redshift(spotify_artist_ids, 'ids')
 
         string = """
             with t as (
@@ -109,8 +106,8 @@ class WeeklyFunctionsPipeline(PipelineBase):
                 instagram_id, youtube_id, tiktok_id,
                 shazam_id, twitter_id, genius_id, gtrends_id, soundcloud_id, twitch_id
         """
-        data = reporting_db.execute(string)
-        reporting_db.disconnect()
+        data = self.reporting_db.execute(string)
+        self.reporting_db.execute('drop table ids')
 
         if data.empty:
             return

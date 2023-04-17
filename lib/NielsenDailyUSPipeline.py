@@ -311,8 +311,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         print('Check 4: Postgres db valid')
 
-        reporting_db = Db('reporting_db')
-        reporting_db.test()
+        self.reporting_db.test()
 
         print('Check 5: Reporting db valid')
 
@@ -1308,9 +1307,6 @@ class NielsenDailyUSPipeline(PipelineBase):
             # If we found any, do a bulk search
             if len(isrcs) > 0:
 
-                reporting_db = Db('reporting_db')
-                reporting_db.connect()
-
                 # Attempt to match the spotify track ids to the isrcs we already have
                 string = """
                     select
@@ -1321,12 +1317,9 @@ class NielsenDailyUSPipeline(PipelineBase):
                     where isrc in %(isrcs)s
                 """
                 params = { 'isrcs': isrcs }
-                spotify = reporting_db.execute(string, params)
+                spotify = self.reporting_db.execute(string, params)
                 if spotify is None:
                     raise Exception('Error getting from chartmetric_raw.spotify')
-
-                # Disconnect from reporting db
-                reporting_db.disconnect()
 
                 # Remove duplicate isrcs and keep the ones with the highest popularity score
                 spotify = spotify.sort_values(by='popularity', ascending=False).drop_duplicates(subset=['isrc']).drop(columns='popularity').reset_index(drop=True)
@@ -1760,16 +1753,13 @@ class NielsenDailyUSPipeline(PipelineBase):
         # First extract all the spotify artist ids and drop duplicates
         spotify_artist_ids = df[['spotify_artist_id']].drop_duplicates(subset=['spotify_artist_id']).reset_index(drop=True)
 
-        reporting_db = Db('reporting_db')
-        reporting_db.connect()
-
         string = """
             create temp table ids (
                 spotify_artist_id text
             );
         """
-        reporting_db.execute(string)
-        reporting_db.big_insert_redshift(spotify_artist_ids, 'ids')
+        self.reporting_db.execute(string)
+        self.reporting_db.big_insert_redshift(spotify_artist_ids, 'ids')
 
         string = """
             with t as (
@@ -1842,8 +1832,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                 instagram_id, youtube_id, tiktok_id,
                 shazam_id, twitter_id, genius_id, gtrends_id, soundcloud_id, twitch_id
         """
-        data = reporting_db.execute(string)
-        reporting_db.disconnect()
+        data = self.reporting_db.execute(string)
+        self.reporting_db.execute('drop table ids') # Drop the temp table
 
         if data.empty:
             return
@@ -2443,8 +2433,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                     instagram_id text
                 );
             """
-            reporting_db.execute(string)
-            reporting_db.big_insert_redshift(instagram_ids, 'tmp_instagram_ids')
+            self.reporting_db.execute(string)
+            self.reporting_db.big_insert_redshift(instagram_ids, 'tmp_instagram_ids')
 
             string = """
                 select
@@ -2455,10 +2445,10 @@ class NielsenDailyUSPipeline(PipelineBase):
                 join chartmetric_raw.instagram_stat igs on ig.instagram_id = igs.account_id
                 where date > dateadd('days', -16, current_date)
             """
-            xdf = reporting_db.execute(string)
+            xdf = self.reporting_db.execute(string)
 
             string = 'drop table tmp_instagram_ids'
-            reporting_db.execute(string)
+            self.reporting_db.execute(string)
 
             # Some preprocessing so that we can work with a clean dataset during our actual analysis
 
@@ -2613,8 +2603,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                     spotify_id text
                 );
             """
-            reporting_db.execute(string)
-            reporting_db.big_insert_redshift(spotify_ids, 'tmp_spotify_ids')
+            self.reporting_db.execute(string)
+            self.reporting_db.big_insert_redshift(spotify_ids, 'tmp_spotify_ids')
 
             # Join and select instagram data from redshift db
             string = """
@@ -2628,11 +2618,11 @@ class NielsenDailyUSPipeline(PipelineBase):
                 where sa.followers_latest > 2000
                     and date > dateadd('days', -16, current_date)
             """
-            xdf = reporting_db.execute(string)
+            xdf = self.reporting_db.execute(string)
 
             # Drop the temporary table to stay clean
             string = 'drop table tmp_spotify_ids'
-            reporting_db.execute(string)
+            self.reporting_db.execute(string)
 
             # Some preprocessing so that we can work with a clean dataset during our actual analysis
 
@@ -2775,8 +2765,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                     tiktok_id text
                 );
             """
-            reporting_db.execute(string)
-            reporting_db.big_insert_redshift(tiktok_ids, 'tmp_tiktok_ids')
+            self.reporting_db.execute(string)
+            self.reporting_db.big_insert_redshift(tiktok_ids, 'tmp_tiktok_ids')
 
             # Join and select instagram data from redshift db
             string = """
@@ -2791,11 +2781,11 @@ class NielsenDailyUSPipeline(PipelineBase):
                     and tus.followers != 0
                     and date > dateadd('days', -21, current_date)
             """
-            xdf = reporting_db.execute(string)
+            xdf = self.reporting_db.execute(string)
 
             # Drop the temporary table to stay clean
             string = 'drop table tmp_tiktok_ids'
-            reporting_db.execute(string)
+            self.reporting_db.execute(string)
 
             # Some preprocessing so that we can work with a clean dataset during our actual analysis
 
@@ -2951,14 +2941,9 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         df = self.db.execute(string)
 
-        reporting_db = Db('reporting_db')
-        reporting_db.connect()
-
         updateTiktokChart(df)
         updateSpotifyChart(df)
         updateInstagramChart(df)
-
-        reporting_db.disconnect()
     
     def updateSpotifyCharts(self):
 
@@ -3411,9 +3396,6 @@ class NielsenDailyUSPipeline(PipelineBase):
             'genre': 'str'
         })
 
-        reporting_db = Db('reporting_db')
-        reporting_db.connect()
-
         # Get an isrcs from the reporting db that exist in conjunction with the genius ids
         string = """
             select id as genius_id, isrc
@@ -3422,10 +3404,8 @@ class NielsenDailyUSPipeline(PipelineBase):
                 and isrc is not null
         """
         params = { 'genius_ids': tuple(df['genius_id'].unique()) }
-        ids = reporting_db.execute(string, params)
+        ids = self.reporting_db.execute(string, params)
         ids = ids.astype({ 'genius_id': 'str' })
-
-        reporting_db.disconnect()
 
         df = pd.merge(df, ids, on='genius_id', how='left')
 
@@ -3872,9 +3852,6 @@ class NielsenDailyUSPipeline(PipelineBase):
     
     def report_shazam(self):
 
-        reporting_db = Db('reporting_db')
-        reporting_db.connect()
-
         def generateShazamRankByCountry():
 
             # Pull today's Shazam data
@@ -3919,7 +3896,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 left join lp on tp.isrc = lp.isrc
                 left join lw on tp.isrc = lw.isrc
             """
-            shazam = reporting_db.execute(string)
+            shazam = self.reporting_db.execute(string)
 
             existing_isrcs = self.getExistingSpotifySongInfoByIsrc(shazam.isrc.values)
 
@@ -4043,7 +4020,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 left join lp on tp.isrc = lp.isrc and tp.city_name = lp.city_name
                 left join lw on tp.isrc = lw.isrc and tp.city_name = lw.city_name
             """
-            shazam = reporting_db.execute(string)
+            shazam = self.reporting_db.execute(string)
 
             existing_isrcs = self.getExistingSpotifySongInfoByIsrc(shazam.isrc.values)
 
@@ -4132,12 +4109,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         shazam_by_market_streams.to_csv(self.reports_fullfiles['shazam_by_market_streams'], index=False)
         shazam_by_market.to_csv(self.reports_fullfiles['shazam_by_market'], index=False)
 
-        reporting_db.disconnect()
-
     def report_spotifyArtistStatGrowth(self):
-
-        reporting_db = Db('reporting_db')
-        reporting_db.connect()
 
         string = """
             with tw as (
@@ -4174,9 +4146,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             where tw.tw_monthly_listeners >= 100000
                 and lw.lw_monthly_listeners != 0
         """
-        df = reporting_db.execute(string)
-
-        reporting_db.disconnect()
+        df = self.reporting_db.execute(string)
 
         # Do some stats calculations
         df['montly_listeners_pct_chg'] = ((df['tw_monthly_listeners']).div(df['lw_monthly_listeners']) - 1) * 100
