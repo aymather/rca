@@ -158,7 +158,8 @@ class NielsenDailyUSPipeline(PipelineBase):
             'new_artists_in_genres_tw_streams': os.path.join(self.folders['exports'], f'new_artists_in_genres_tw_streams_{formatted_date}.csv'),
             'sp_follower_growth': os.path.join(self.folders['exports'], f'sp_follower_growth_{formatted_date}.csv'),
             'ig_follower_growth': os.path.join(self.folders['exports'], f'ig_follower_growth_{formatted_date}.csv'),
-            'tt_follower_growth': os.path.join(self.folders['exports'], f'tt_follower_growth_{formatted_date}.csv')
+            'tt_follower_growth': os.path.join(self.folders['exports'], f'tt_follower_growth_{formatted_date}.csv'),
+            'sp_follower_long_term_growth': os.path.join(self.folders['exports'], f'sp_follower_long_term_growth_{formatted_date}.csv')
         }
 
     def downloadFiles(self):
@@ -4598,30 +4599,352 @@ class NielsenDailyUSPipeline(PipelineBase):
         df = self.db.execute(string)
         df.to_csv(self.reports_fullfiles['tt_follower_growth'], index=False)
     
-    def emailReports(self):
+    def report_spotifyLongTermFollowerGrowth(self):
+
+        # Get ids from postgres
+        string = """
+            select
+                m.artist_id,
+                m.artist,
+                m.tw_streams,
+                m.pct_chg as streams_pct_chg,
+                m.rtd_oda_streams,
+                m.tw_streams_ex_us,
+                m.genres,
+                sp.url as spotify_url,
+                cm.spotify_id
+            from nielsen_artist.__artist m
+            left join nielsen_artist.cm_map cm on m.artist_id = cm.artist_id
+            left join nielsen_artist.spotify sp on m.artist_id = sp.artist_id
+            where signed is false
+                and cm.spotify_id is not null
+                and cm.spotify_id != ''
+        """
+        df = self.db.execute(string)
+
+        # Get the spotify data from reporting db
+        spotify_ids = df[['spotify_id']].drop_duplicates(subset=['spotify_id']).reset_index(drop=True)
+
+        # Copy ids into a temp table in the redshift db
+        string = """
+            create temp table tmp_spotify_ids (
+                spotify_id text
+            );
+        """
+        self.reporting_db.execute(string)
+        self.reporting_db.big_insert_redshift(spotify_ids, 'tmp_spotify_ids')
+
+        # Join and select instagram data from redshift db
+        string = """
+            select
+                spotify_artist as spotify_id,
+                timestp as date,
+                followers as sp_followers
+            from tmp_spotify_ids tsi
+            join chartmetric_raw.spotify_artist sa on tsi.spotify_id = sa.id
+            join chartmetric_raw.spotify_artist_stat sas on tsi.spotify_id = sas.spotify_artist
+            where sa.followers_latest > 2000
+                and date > dateadd('days', -186, current_date)
+        """
+        xdf = self.reporting_db.execute(string)
+
+        # Drop the temporary table to stay clean
+        string = 'drop table tmp_spotify_ids'
+        self.reporting_db.execute(string)
+
+        # Some preprocessing so that we can work with a clean dataset during our actual analysis
+
+        # Remove null values in followers column
+        xdf = xdf[~xdf['sp_followers'].isnull()].reset_index(drop=True)
+
+        # Clean types
+        xdf['date'] = pd.to_datetime(xdf['date'])
+        xdf = xdf.astype({
+            'spotify_id': 'int',
+            'sp_followers': 'int'
+        })
+
+        # Sometimes chartmetric has duplicates for certain days, so let's drop those
+        xdf = xdf.drop_duplicates(subset=['spotify_id', 'date']).reset_index(drop=True)
+
+        # Filter out anyone without at least 5 days of available data
+        xdf = xdf.groupby('spotify_id').filter(lambda x: len(x) > 4)
+
+        # Interpolate missing data
+        xdf = xdf.set_index('date')
+        xdf = xdf.groupby('spotify_id').resample('D').sp_followers.mean().reset_index()
+        xdf['sp_followers'] = xdf['sp_followers'].interpolate()
+
+        # Create a column that is the number of followers gained from the previous day for each artist
+        xdf['sp_followers_gained'] = xdf.groupby('spotify_id')['sp_followers'].diff()
+
+        # Fill na values with 0
+        xdf['sp_followers_gained'] = xdf['sp_followers_gained'].fillna(0)
+
+        # Add a column that is the number of followers gained from the previous day for each artist
+        xdf['sp_followers_gained_prev'] = xdf.groupby('spotify_id')['sp_followers_gained'].shift(1)
+        xdf['sp_followers_gained_prev'] = xdf['sp_followers_gained_prev'].fillna(0)
+
+        # Calculate the number of times each artist has gained more followers than the previous day
+        mask = (
+            (xdf['sp_followers_gained'] > 0) & \
+            (xdf['sp_followers_gained'] >= xdf['sp_followers_gained_prev'])
+        )
+
+        xdf['is_greater'] = 0
+        xdf.loc[mask, 'is_greater'] = 1
+
+        # Sum the number of times each artist has gained more followers than the previous day
+        results = xdf.groupby('spotify_id').is_greater.sum().reset_index().sort_values(by='is_greater', ascending=False)
+
+        # Remove the bullshit
+        results = results[results['is_greater'] > results.is_greater.mean()].reset_index(drop=True)
+
+        # Only keep artists that are in the results
+        xdf = xdf[xdf['spotify_id'].isin(results.spotify_id)].reset_index(drop=True)
+
+        # We can drop unusued columns now
+        xdf.drop(columns=['sp_followers_gained', 'sp_followers_gained_prev', 'is_greater'], inplace=True)
+
+        # Add a column that represents sp_followers 7 days ago
+        xdf['sp_followers_7_days_ago'] = xdf.groupby('spotify_id')['sp_followers'].shift(7)
+
+        # Remove na rows
+        xdf = xdf[~xdf['sp_followers_7_days_ago'].isnull()].reset_index(drop=True)
+
+        # Add a column that is the number of followers gained from 7 days ago for each artist
+        xdf['sp_followers_gained'] = xdf['sp_followers'] - xdf['sp_followers_7_days_ago']
+
+        # Get and apply our model
+        model = BinnedModel('spotify_gain_model')
+        xdf = model.fit(xdf, 'sp_followers', 'sp_followers_gained')
+
+        # Get the overall average z-score for each artist
+        results = xdf.groupby('spotify_id')['z-score'].mean().reset_index().sort_values(by='z-score', ascending=False).reset_index(drop=True)
+        results.rename(columns={'z-score': 'six_month_z_score'}, inplace=True)
+
+        # Get the average z-score for each artist for the last 14 days
+        xdf['max_date'] = xdf.groupby('spotify_id')['date'].transform('max') - pd.Timedelta(days=14)
+        mask = xdf['date'] > xdf['max_date']
+        recent_df = xdf[mask].reset_index(drop=True)
+        recent_df = recent_df.groupby('spotify_id')['z-score'].mean().reset_index().sort_values(by='z-score', ascending=False).reset_index(drop=True)
+        recent_df.rename(columns={'z-score': 'fourteen_day_z_score'}, inplace=True)
+
+        # Merge the recent z-scores into the overall z-scores
+        results = pd.merge(results, recent_df, on='spotify_id', how='left')
+
+        # Get rid of artists that don't have a recent or overall z-score of at least 0
+        mask = (
+            (results['fourteen_day_z_score'] > 0) & \
+            (results['six_month_z_score'] > 0)
+        )
+        results = results[mask].reset_index(drop=True)
+
+        # Sort by overall z-score and only keep the top 1000
+        results = results.sort_values(by='six_month_z_score', ascending=False).reset_index(drop=True).iloc[:1000]
+
+        # Only keep the most recent date for each artist
+        xdf = xdf.groupby('spotify_id').last().reset_index()
+
+        # Merge the results into the main dataframe and drop any artists that aren't in the results
+        xdf = pd.merge(xdf, results, on='spotify_id', how='inner')
+
+        # Drop unnecessary columns
+        xdf.drop(columns=['mean', 'std', 'z-score', 'max_date'], inplace=True)
+
+        # Sort by long term z-score rank
+        xdf = xdf.sort_values(by='six_month_z_score', ascending=True).reset_index(drop=True)
+
+        # Calculate the percent change in followers between today and 7 days ago
+        xdf['sp_followers_pct_chg'] = (xdf['sp_followers'] - xdf['sp_followers_7_days_ago']).div(xdf['sp_followers_7_days_ago']).mul(100).round(2)
+
+        # Only keep the top 1000 artists from our results
+        df['spotify_id'] = df['spotify_id'].astype('int')
+        xdf['spotify_id'] = xdf['spotify_id'].astype('int')
+        df = pd.merge(xdf, df, on='spotify_id', how='inner')
+
+        # Sometimes we will have multiple artist_ids for the same spotify_id, so let's just keep the one with the most streams this week
+        df = df.sort_values(by='tw_streams', ascending=False).drop_duplicates(subset=['spotify_id'], keep='first').reset_index(drop=True)
+
+        # Add a column for the graphitti url
+        df['graphitti_url'] = 'https://graphitti.io/artists/' + df['artist_id'].astype('str')
+
+        # Rename for clarity
+        df.rename(columns={ 'date': 'recent_spotify_date' }, inplace=True)
+
+        # Sort columns
+        columns = [
+            'spotify_id',
+            'artist_id',
+            'artist',
+            'sp_followers',
+            'sp_followers_7_days_ago',
+            'sp_followers_pct_chg',
+            'sp_followers_gained',
+            'recent_spotify_date',
+            'six_month_z_score',
+            'fourteen_day_z_score',
+            'tw_streams',
+            'streams_pct_chg',
+            'rtd_oda_streams',
+            'tw_streams_ex_us',
+            'genres',
+            'spotify_url',
+            'graphitti_url'
+        ]
+        df = df[columns].sort_values(by='six_month_z_score', ascending=False).reset_index(drop=True)
+
+        # Clean types
+        df['sp_followers'] = df['sp_followers'].astype(int)
+        df['sp_followers_gained'] = df['sp_followers_gained'].astype(int)
+        df['sp_followers_7_days_ago'] = df['sp_followers_7_days_ago'].astype(int)
+
+        # Database updates so we can keep track of what's new and what's not
+        string = """
+            create temp table tmp_sp_follower_growth (
+                spotify_id int,
+                artist_id int,
+                artist text,
+                sp_followers int,
+                sp_followers_7_days_ago int,
+                sp_followers_pct_chg float,
+                sp_followers_gained int,
+                recent_spotify_date date,
+                six_month_z_score float,
+                fourteen_day_z_score float,
+                tw_streams int,
+                streams_pct_chg float,
+                rtd_oda_streams int,
+                tw_streams_ex_us int,
+                genres text,
+                spotify_url text,
+                graphitti_url text
+            );
+        """
+        self.db.execute(string)
+        self.db.big_insert(df, 'tmp_sp_follower_growth')
+
+        string = """
+            create temp table tmp_data as (
+                select
+                    td.spotify_id,
+                    td.artist_id,
+                    td.artist,
+                    td.sp_followers,
+                    td.sp_followers_7_days_ago,
+                    td.sp_followers_pct_chg,
+                    td.sp_followers_gained,
+                    td.recent_spotify_date,
+                    td.six_month_z_score,
+                    td.fourteen_day_z_score,
+                    td.tw_streams,
+                    td.streams_pct_chg,
+                    td.rtd_oda_streams,
+                    td.tw_streams_ex_us,
+                    td.genres,
+                    td.spotify_url,
+                    td.graphitti_url,
+                    case
+                        when sp.artist_id is null then true
+                        else false
+                    end as is_new
+                from tmp_sp_follower_growth td
+                left join social_charts.sp_follower_long_term_growth sp on td.artist_id = sp.artist_id
+            );
+
+            delete from social_charts.sp_follower_long_term_growth;
+
+            insert into social_charts.sp_follower_long_term_growth (
+                spotify_id,
+                artist_id,
+                artist,
+                sp_followers,
+                sp_followers_7_days_ago,
+                sp_followers_pct_chg,
+                sp_followers_gained,
+                recent_spotify_date,
+                six_month_z_score,
+                fourteen_day_z_score,
+                tw_streams,
+                streams_pct_chg,
+                rtd_oda_streams,
+                tw_streams_ex_us,
+                genres,
+                spotify_url,
+                graphitti_url,
+                is_new
+            )
+            select * from tmp_data;
+
+            drop table tmp_data;
+            drop table tmp_sp_follower_growth;
+        """
+        self.db.execute(string)
+
+        # Get our updated data from the table
+        string = """
+            select *
+            from social_charts.sp_follower_long_term_growth
+            order by six_month_z_score desc
+        """
+        df = self.db.execute(string)
+        df.to_csv(self.reports_fullfiles['sp_follower_long_term_growth'], index=False)
+    
+    def sendReports(self, recipients, filenames):
+
+        """
+        
+            General function for sending reports
+
+        """
 
         def add_file(files, fullfile):
+            """ Only add the file if it exists to avoid errors"""
             if os.path.exists(fullfile):
                 files.append({
                     'path': fullfile,
                     'filename': os.path.basename(fullfile)
                 })
 
+        # Only send it to myself if we're testing
+        if self.settings['is_testing']:
+            recipients = [ 'alec.mather@rcarecords.com' ]
+
         files = []
-        add_file(files, self.reports_fullfiles['genius_scrape'])
-        add_file(files, self.reports_fullfiles['nielsen_daily_audio'])
-        add_file(files, self.reports_fullfiles['shazam_by_market'])
-        add_file(files, self.reports_fullfiles['shazam_by_market_streams'])
-        add_file(files, self.reports_fullfiles['shazam_rank_by_country'])
-        add_file(files, self.reports_fullfiles['spotify_artist_stat_growth'])
-        add_file(files, self.reports_fullfiles['artist_8_week_growth'])
-        add_file(files, self.reports_fullfiles['song_8_week_growth'])
-        add_file(files, self.reports_fullfiles['growing_genres'])
-        add_file(files, self.reports_fullfiles['nielsen_weekly_audio'])
-        add_file(files, self.reports_fullfiles['new_artists_in_genres_tw_streams'])
-        add_file(files, self.reports_fullfiles['ig_follower_growth'])
-        add_file(files, self.reports_fullfiles['sp_follower_growth'])
-        add_file(files, self.reports_fullfiles['tt_follower_growth'])
+        for file in filenames:
+            add_file(files, file)
+
+        # Get the body of the email (our daily quote)
+        rapidApi = RapidApi()
+        quote = rapidApi.getInspirationalQuote()
+
+        self.email.send(recipients, 'Daily Reports', f'Quote of the day:\n{quote}', files)
+    
+    def emailReports(self):
+
+        
+
+        """
+        
+            This block is for aaron, karl, and alec
+        
+        """
+        filenames = [
+            self.reports_fullfiles['genius_scrape'],
+            self.reports_fullfiles['nielsen_daily_audio'],
+            self.reports_fullfiles['shazam_by_market'],
+            self.reports_fullfiles['shazam_by_market_streams'],
+            self.reports_fullfiles['shazam_rank_by_country'],
+            self.reports_fullfiles['spotify_artist_stat_growth'],
+            self.reports_fullfiles['artist_8_week_growth'],
+            self.reports_fullfiles['song_8_week_growth'],
+            self.reports_fullfiles['growing_genres'],
+            self.reports_fullfiles['nielsen_weekly_audio'],
+            self.reports_fullfiles['new_artists_in_genres_tw_streams'],
+            self.reports_fullfiles['ig_follower_growth'],
+            self.reports_fullfiles['sp_follower_growth'],
+            self.reports_fullfiles['tt_follower_growth']
+        ]
 
         recipients = [
             'alec.mather@rcarecords.com',
@@ -4629,13 +4952,23 @@ class NielsenDailyUSPipeline(PipelineBase):
             'karl.fricker@rcarecords.com'
         ]
 
-        if self.settings['is_testing']:
-            recipients = [ 'alec.mather@rcarecords.com' ]
+        self.sendReports(recipients, filenames)
 
-        rapidApi = RapidApi()
-        quote = rapidApi.getInspirationalQuote()
+        """
+        
+            This block is for kat
+        
+        """
+        filenames = [
+            self.reports_fullfiles['sp_follower_growth'],
+            self.reports_fullfiles['sp_follower_long_term_growth']
+        ]
 
-        self.email.send(recipients, 'Daily Reports', f'Quote of the day:\n{quote}', files)
+        recipients = [
+            'kat.kusion@rcarecords.com'
+        ]
+
+        self.sendReports(recipients, filenames)
 
     def build(self):
 
@@ -4761,6 +5094,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.add_function(self.report_genres, 'Growing Genres Report', error_on_failure=False)
         self.add_function(self.report_nielsenWeeklyAudio, 'Nielsen Weekly Audio', error_on_failure=False)
         self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth', error_on_failure=False)
+        self.add_function(self.report_spotifyLongTermFollowerGrowth, 'Report Spotify Long Term Growth', error_on_failure=False)
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
 
     def test_build(self):
