@@ -144,6 +144,8 @@ def recacheSpotifyArtists():
     string = """drop table data"""
     db.execute(string)
 
+    db.commit()
+
     print('Done.')
     print_memory_usage()
     time.printElapsed()
