@@ -159,7 +159,8 @@ class NielsenDailyUSPipeline(PipelineBase):
             'sp_follower_growth': os.path.join(self.folders['exports'], f'sp_follower_growth_{formatted_date}.csv'),
             'ig_follower_growth': os.path.join(self.folders['exports'], f'ig_follower_growth_{formatted_date}.csv'),
             'tt_follower_growth': os.path.join(self.folders['exports'], f'tt_follower_growth_{formatted_date}.csv'),
-            'sp_follower_long_term_growth': os.path.join(self.folders['exports'], f'sp_follower_long_term_growth_{formatted_date}.csv')
+            'sp_follower_long_term_growth': os.path.join(self.folders['exports'], f'sp_follower_long_term_growth_{formatted_date}.csv'),
+            'shazam_viral_growth': os.path.join(self.folders['exports'], f'shazam_viral_growth_{formatted_date}.csv'),
         }
 
     def downloadFiles(self):
@@ -4110,6 +4111,235 @@ class NielsenDailyUSPipeline(PipelineBase):
         shazam_by_market_streams.to_csv(self.reports_fullfiles['shazam_by_market_streams'], index=False)
         shazam_by_market.to_csv(self.reports_fullfiles['shazam_by_market'], index=False)
 
+    def report_shazamViralGrowth(self):
+
+        # Get ids from postgres
+        string = """
+            select
+                m.song_id,
+                m.artist,
+                m.title,
+                m.release_date,
+                m.isrc,
+                m.tw_streams,
+                m.pct_chg,
+                m.tw_streams_ex_us,
+                m.rtd_oda_streams,
+                sp.url as spotify_url,
+                'https://graphitti.io/songs/' || m.song_id as graphitti_url
+            from nielsen_song.__song m
+            left join nielsen_song.spotify sp on m.song_id = sp.song_id
+            where m.signed is not true
+                and m.tw_streams > 10000
+                and m.isrc is not null
+                and m.isrc != ''
+                and m.pct_chg >= 0
+        """
+        df = self.db.execute(string)
+
+        isrcs = df[['isrc']].drop_duplicates(subset='isrc').reset_index(drop=True)
+        string = """
+            create temp table tmp_isrcs (
+                isrc text
+            );
+        """
+        self.reporting_db.execute(string)
+        self.reporting_db.big_insert_redshift(isrcs, 'tmp_isrcs')
+
+        string = """
+            select
+                itunes.isrc,
+                shazam_stat.timestp as date,
+                count as shazams
+            from tmp_isrcs ti
+            left join chartmetric_raw.itunes on ti.isrc = itunes.isrc
+            left join chartmetric_raw.shazam on itunes.itunes_track_id = shazam.itunes_track_id
+            left join chartmetric_raw.shazam_stat on shazam.id = shazam_stat.shazam
+            where count > 0
+                and shazam_stat.timestp > dateadd(day, -14, current_date)
+            order by itunes.isrc, timestp desc;
+        """
+        xdf = self.reporting_db.execute(string)
+
+        # Drop the temp table to stay clean
+        self.reporting_db.execute('drop table if exists tmp_isrcs')
+
+        # Clean types
+        xdf['date'] = pd.to_datetime(xdf['date'])
+        xdf = xdf.astype({
+            'isrc': 'str',
+            'shazams': 'int'
+        })
+
+        # Sort and drop duplicates, always keep the greater number of shazams cause whatever
+        xdf = xdf.sort_values(by=['isrc', 'date', 'shazams'], ascending=[True, True, False]).drop_duplicates(subset=['isrc', 'date'], keep='first').reset_index(drop=True)
+
+        # Filter out anything that doesn't have at least 5 days of shazam data
+        xdf = xdf.groupby('isrc').filter(lambda x: len(x) >= 5).reset_index(drop=True)
+
+        # Interpolate any missing data (swap isrc column with an int id to speed up the interpolation then swap back)
+        isrcs = xdf[['isrc']].drop_duplicates(subset='isrc').reset_index(drop=True)
+        isrcs['int_id'] = isrcs.index + 1
+        xdf = pd.merge(xdf, isrcs, on='isrc', how='left')
+        xdf.drop(columns=['isrc'], inplace=True)
+
+        # Now perform the interpolation
+        xdf = xdf.set_index('date')
+        xdf = xdf.groupby('int_id').resample('D').shazams.mean().reset_index()
+        xdf['shazams'] = xdf['shazams'].interpolate('linear')
+
+        # Swap back
+        xdf = pd.merge(xdf, isrcs, on='int_id', how='left')
+        xdf.drop(columns=['int_id'], inplace=True)
+
+        # Create a column that is the number of shazams gained from the previous day
+        xdf['shazams_gained'] = xdf.groupby('isrc')['shazams'].diff()
+
+        # Fill na with 0
+        xdf['shazams_gained'] = xdf['shazams_gained'].fillna(0)
+
+        # Clean types again
+        xdf = xdf.astype({
+            'isrc': 'str',
+            'shazams': 'int',
+            'shazams_gained': 'int'
+        })
+
+        # Fit the model
+        model = BinnedModel('shazam_gain_model')
+        xdf = model.fit(xdf, 'shazams', 'shazams_gained')
+        xdf = xdf.rename(columns={ 'z-score': 'z_score' })
+
+        # Get the mean z_score for each isrc
+        results = xdf.groupby('isrc')['z_score'].mean().reset_index().sort_values(by='z_score', ascending=False).reset_index(drop=True)
+
+        # Only keep the top results
+        results = results[results['z_score'] > 1].reset_index(drop=True)
+
+        # Keep only our top results and merge back in the original data
+        df = pd.merge(df, results, on='isrc', how='inner')
+
+        # Add a column for the number of shazams gained since 7 days ago for each isrc
+        xdf['shazams_7_day_gain'] = xdf.groupby('isrc')['shazams'].diff(7)
+        xdf['shazams_7_day_gain'] = xdf['shazams_7_day_gain'].fillna(0)
+        xdf['shazams_7_day_gain'] = xdf['shazams_7_day_gain'].astype('int')
+
+        # Get the latest shazams for each isrc
+        latest = xdf.groupby('isrc').tail(1).reset_index(drop=True)
+        latest = latest[['isrc', 'shazams', 'shazams_7_day_gain', 'date']]
+        latest.rename(columns={ 'date': 'latest_date' }, inplace=True)
+
+        # Merge the latest shazams into the original data
+        df = pd.merge(df, latest, on='isrc', how='left')
+
+        # Sort the columns
+        columns = [
+            'song_id',
+            'isrc',
+            'artist',
+            'title',
+            'release_date',
+            'z_score',
+            'tw_streams',
+            'shazams',
+            'shazams_7_day_gain',
+            'latest_date',
+            'pct_chg',
+            'tw_streams_ex_us',
+            'rtd_oda_streams',
+            'spotify_url',
+            'graphitti_url'
+        ]
+
+        df = df[columns].reset_index(drop=True)
+
+        # Sort by z_score
+        df = df.sort_values(by='z_score', ascending=False).reset_index(drop=True)
+
+        string = """
+            create temp table tmp_shazam_gain (
+                song_id int,
+                isrc text,
+                artist text,
+                title text,
+                release_date date,
+                z_score float,
+                tw_streams int,
+                shazams int,
+                shazams_7_day_gain int,
+                latest_date date,
+                pct_chg float,
+                tw_streams_ex_us int,
+                rtd_oda_streams int,
+                spotify_url text,
+                graphitti_url text
+            )
+        """
+        self.db.execute(string)
+        self.db.big_insert(df, 'tmp_shazam_gain')
+
+        string = """
+            create temp table tmp_data as (
+                select
+                    tsg.song_id,
+                    tsg.isrc,
+                    tsg.artist,
+                    tsg.title,
+                    tsg.release_date,
+                    tsg.z_score,
+                    tsg.tw_streams,
+                    tsg.shazams,
+                    tsg.shazams_7_day_gain,
+                    tsg.latest_date,
+                    tsg.pct_chg,
+                    tsg.tw_streams_ex_us,
+                    tsg.rtd_oda_streams,
+                    tsg.spotify_url,
+                    tsg.graphitti_url,
+                    case
+                        when s.song_id is null then true
+                        else false
+                    end as is_new
+                from tmp_shazam_gain tsg
+                left join social_charts.shazam_viral_growth s on tsg.song_id = s.song_id
+            );
+
+            delete from social_charts.shazam_viral_growth;
+
+            insert into social_charts.shazam_viral_growth (
+                song_id,
+                isrc,
+                artist,
+                title,
+                release_date,
+                z_score,
+                tw_streams,
+                shazams,
+                shazams_7_day_gain,
+                latest_date,
+                pct_chg,
+                tw_streams_ex_us,
+                rtd_oda_streams,
+                spotify_url,
+                graphitti_url,
+                is_new
+            )
+            select * from tmp_data;
+
+            drop table tmp_shazam_gain;
+            drop table tmp_data;
+        """
+        self.db.execute(string)
+
+        # Get the data from the database that we just inserted
+        string = """
+            select *
+            from social_charts.shazam_viral_growth
+            order by z_score desc
+        """
+        df = self.db.execute(string)
+        df.to_csv(self.reports_fullfiles['shazam_viral_growth'], index=False)
+    
     def report_spotifyArtistStatGrowth(self):
 
         string = """
@@ -4961,7 +5191,8 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         filenames = [
             self.reports_fullfiles['sp_follower_growth'],
-            self.reports_fullfiles['sp_follower_long_term_growth']
+            self.reports_fullfiles['sp_follower_long_term_growth'],
+            self.reports_fullfiles['shazam_viral_growth']
         ]
 
         recipients = [
@@ -5095,6 +5326,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.add_function(self.report_nielsenWeeklyAudio, 'Nielsen Weekly Audio', error_on_failure=False)
         self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth', error_on_failure=False)
         self.add_function(self.report_spotifyLongTermFollowerGrowth, 'Report Spotify Long Term Growth', error_on_failure=False)
+        self.add_function(self.report_shazamViralGrowth, 'Report Shazam Viral Growth', error_on_failure=False)
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
 
     def test_build(self):
@@ -5102,8 +5334,8 @@ class NielsenDailyUSPipeline(PipelineBase):
         # Always set the settings to test regardless of command line arguments
         self.settings['is_testing'] = True
 
-        self.add_function(self.downloadFiles, 'Download Files')
-        self.add_function(self.validateSession, 'Validate Session')
+        # self.add_function(self.downloadFiles, 'Download Files')
+        # self.add_function(self.validateSession, 'Validate Session')
         # self.add_function(self.processArtists, 'Process Artists')
         # self.add_function(self.processSongs, 'Process Songs')
         # self.add_function(self.testDbInsert, 'Test Db Insert')
@@ -5116,7 +5348,8 @@ class NielsenDailyUSPipeline(PipelineBase):
         # self.add_function(self.report_song8WeekGrowth, 'Song 8 Week Growth', error_on_failure=False)
         # self.add_function(self.report_nielsenWeeklyAudio, 'Nielsen Weekly Audio', error_on_failure=False)
         # self.add_function(self.report_genres, 'Genres Reports', error_on_failure=False)
-        self.add_function(self.updateArtistSocialCharts, 'Update Artist Social Charts')
-        self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth')
+        # self.add_function(self.updateArtistSocialCharts, 'Update Artist Social Charts')
+        # self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth')
+        self.add_function(self.report_shazamViralGrowth, 'Report Shazam Viral Growth', error_on_failure=False)
 
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
