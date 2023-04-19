@@ -313,7 +313,9 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         print('Check 4: Postgres db valid')
 
-        self.reporting_db.test()
+        # Intentionally separate instance than the class level instance
+        reporting_db = Db('reporting_db')
+        reporting_db.test()
 
         print('Check 5: Reporting db valid')
 
