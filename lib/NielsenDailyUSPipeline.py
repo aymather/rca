@@ -2207,28 +2207,30 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         df = self.db.execute(string)
 
-        # Get the dominant color of each spotify image
-        df['dominant_color'] = df['spotify_image'].apply(getDominantColor)
-        df.drop(columns=['spotify_image'], inplace=True)
+        if not df.empty:
 
-        # Update the database
-        string = """
-            create temp table tmp_colors (
-                song_id int,
-                dominant_color text
-            );
-        """
-        self.db.execute(string)
-        self.db.big_insert(df, 'tmp_colors')
+            # Get the dominant color of each spotify image
+            df['dominant_color'] = df['spotify_image'].apply(getDominantColor)
+            df.drop(columns=['spotify_image'], inplace=True)
 
-        string = """
-            update nielsen_song.meta m
-            set dominant_color = c.dominant_color
-            from tmp_colors c
-            where m.id = c.song_id;
-        """
-        self.db.execute(string)
-        self.db.execute('drop table tmp_colors')
+            # Update the database
+            string = """
+                create temp table tmp_colors (
+                    song_id int,
+                    dominant_color text
+                );
+            """
+            self.db.execute(string)
+            self.db.big_insert(df, 'tmp_colors')
+
+            string = """
+                update nielsen_song.meta m
+                set dominant_color = c.dominant_color
+                from tmp_colors c
+                where m.id = c.song_id;
+            """
+            self.db.execute(string)
+            self.db.execute('drop table tmp_colors')
         
     def updateArtistsDominantColors(self):
 
@@ -2245,27 +2247,29 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         df = self.db.execute(string)
 
-        # Get the dominant color of each spotify image
-        df['dominant_color'] = df['spotify_image'].apply(getDominantColor)
-        df.drop(columns=['spotify_image'], inplace=True)
+        if not df.empty:
 
-        string = """
-            create temp table tmp_colors (
-                artist_id int,
-                dominant_color text
-            );
-        """
-        self.db.execute(string)
-        self.db.big_insert(df, 'tmp_colors')
+            # Get the dominant color of each spotify image
+            df['dominant_color'] = df['spotify_image'].apply(getDominantColor)
+            df.drop(columns=['spotify_image'], inplace=True)
 
-        string = """
-            update nielsen_artist.meta m
-            set dominant_color = c.dominant_color
-            from tmp_colors c
-            where m.id = c.artist_id;
-        """
-        self.db.execute(string)
-        self.db.execute('drop table tmp_colors')
+            string = """
+                create temp table tmp_colors (
+                    artist_id int,
+                    dominant_color text
+                );
+            """
+            self.db.execute(string)
+            self.db.big_insert(df, 'tmp_colors')
+
+            string = """
+                update nielsen_artist.meta m
+                set dominant_color = c.dominant_color
+                from tmp_colors c
+                where m.id = c.artist_id;
+            """
+            self.db.execute(string)
+            self.db.execute('drop table tmp_colors')
     
     def refreshReportsRecent(self):
 
