@@ -1,6 +1,9 @@
 from IPython.display import clear_output
 from datetime import datetime as dt
 from .Spotify import Spotify
+from urllib.request import urlopen
+from colorthief import ColorThief
+from io import BytesIO
 import pandas as pd
 import psutil
 import random
@@ -11,6 +14,33 @@ import os
 
 def test():
     print('RCA Library Test Function: ' + dt.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+def getDominantColor(image_url):
+
+    try:
+
+        # Load the remote image into memory
+        with urlopen(image_url) as response:
+            image_data = response.read()
+
+        # Create a BytesIO object from the image data
+        image_buffer = BytesIO(image_data)
+
+        color_thief = ColorThief(image_buffer)
+        color = color_thief.get_color(quality=1)
+
+        return rgb2Hex(color)
+    
+    except:
+        # If we get any error while trying to load the new color, return default color
+        # with a slight modification so that we know that we at least tried to get a new color
+        return '#000001'
+    
+def rgb2Hex(rgb):
+
+    # Convert the RGB tuple to a hex color string
+    hex_color = '#{:02x}{:02x}{:02x}'.format(*rgb)
+    return hex_color
 
 def today():
     return dt.strftime(dt.today(), '%Y-%m-%d')

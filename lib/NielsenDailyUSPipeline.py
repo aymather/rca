@@ -1,6 +1,6 @@
 from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, REPORTS_FOLDER
 from .PipelineBase import PipelineBase
-from .functions import chunker, getSpotifyTrackDataFromSpotifyUsingIsrcTitleAndArtist
+from .functions import chunker, getSpotifyTrackDataFromSpotifyUsingIsrcTitleAndArtist, getDominantColor
 from .Sftp import Sftp
 from .BinnedModel import BinnedModel
 from .Spotify import Spotify
@@ -2192,6 +2192,81 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         self.db.execute(string)
 
+    def updateSongsDominantColors(self):
+
+        # Get the songs that have a spotify image and no dominant color set
+        string = """
+            select
+                m.id as song_id,
+                sp.spotify_image
+            from nielsen_song.meta m
+            left join nielsen_song.spotify sp on m.id = sp.song_id
+            where spotify_image is not null
+                and spotify_image != ''
+                and m.dominant_color = '#000000'
+        """
+        df = self.db.execute(string)
+
+        # Get the dominant color of each spotify image
+        df['dominant_color'] = df['spotify_image'].apply(getDominantColor)
+        df.drop(columns=['spotify_image'], inplace=True)
+
+        # Update the database
+        string = """
+            create temp table tmp_colors (
+                song_id int,
+                dominant_color text
+            );
+        """
+        self.db.execute(string)
+        self.db.big_insert(df, 'tmp_colors')
+
+        string = """
+            update nielsen_song.meta m
+            set dominant_color = c.dominant_color
+            from tmp_colors c
+            where m.id = c.song_id;
+        """
+        self.db.execute(string)
+        self.db.execute('drop table tmp_colors')
+        
+    def updateArtistsDominantColors(self):
+
+        # Get the songs that have a spotify image and no dominant color set
+        string = """
+            select
+                m.id as artist_id,
+                sp.spotify_image
+            from nielsen_artist.meta m
+            left join nielsen_artist.spotify sp on m.id = sp.artist_id
+            where spotify_image is not null
+                and spotify_image != ''
+                and m.dominant_color = '#000000'
+        """
+        df = self.db.execute(string)
+
+        # Get the dominant color of each spotify image
+        df['dominant_color'] = df['spotify_image'].apply(getDominantColor)
+        df.drop(columns=['spotify_image'], inplace=True)
+
+        string = """
+            create temp table tmp_colors (
+                artist_id int,
+                dominant_color text
+            );
+        """
+        self.db.execute(string)
+        self.db.big_insert(df, 'tmp_colors')
+
+        string = """
+            update nielsen_artist.meta m
+            set dominant_color = c.dominant_color
+            from tmp_colors c
+            where m.id = c.artist_id;
+        """
+        self.db.execute(string)
+        self.db.execute('drop table tmp_colors')
+    
     def refreshReportsRecent(self):
 
         string = """
@@ -5261,10 +5336,16 @@ class NielsenDailyUSPipeline(PipelineBase):
                     = Depends on spotify artist genres
                 - filterSignedFromSpotifyCopyrights | Use spotify copyrights to filter signed artists
                     = Depends on cacheSpotifySongs, cacheSpotifyArtists
+                - updateSongsDominantColors | Update the dominant colors for songs
+                    = Depends on cacheSpotifySongs
+                - updateArtistsDominantColors | Update the dominant colors for artists
+                    = Depends on cacheSpotifyArtists
         """
         self.add_function(self.cacheChartmetricIds, 'Cache Chartmetric Ids', error_on_failure=False)
         self.add_function(self.updateGenres, 'Update Genres')
         self.add_function(self.filterSignedFromSpotifyCopyrights, 'Filter Signed from Spotify Copyrights')
+        self.add_function(self.updateSongsDominantColors, 'Update Songs Dominant Colors')
+        self.add_function(self.updateArtistsDominantColors, 'Update Artists Dominant Colors')
 
         """
             Stage 6:
