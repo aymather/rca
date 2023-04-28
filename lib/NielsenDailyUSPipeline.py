@@ -14,6 +14,7 @@ import requests
 import unicodedata
 from uuid import uuid4
 import pandas as pd
+import numpy as np
 import random
 import os
 
@@ -161,6 +162,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             'tt_follower_growth': os.path.join(self.folders['exports'], f'tt_follower_growth_{formatted_date}.csv'),
             'sp_follower_long_term_growth': os.path.join(self.folders['exports'], f'sp_follower_long_term_growth_{formatted_date}.csv'),
             'shazam_viral_growth': os.path.join(self.folders['exports'], f'shazam_viral_growth_{formatted_date}.csv'),
+            'cm_rank_growth': os.path.join(self.folders['exports'], f'cm_rank_growth_{formatted_date}.csv')
         }
 
     def downloadFiles(self):
@@ -5201,6 +5203,171 @@ class NielsenDailyUSPipeline(PipelineBase):
         df = self.db.execute(string)
         df.to_csv(self.reports_fullfiles['sp_follower_long_term_growth'], index=False)
     
+    def report_chartmetricRankGrowth(self):
+
+        # Get ids from postgres
+        string = """
+            select
+                m.artist_id,
+                m.artist,
+                m.tw_streams,
+                m.pct_chg,
+                m.rtd_oda_streams,
+                m.tw_streams_ex_us,
+                m.genres,
+                sp.url as spotify_url,
+                'https://graphitti.io/artist/' || m.artist_id as graphitti_url,
+                m.spotify_artist_id
+            from nielsen_artist.__artist m
+            left join nielsen_artist.spotify sp on m.artist_id = sp.artist_id
+            where signed is false
+                and m.spotify_artist_id is not null
+                and m.spotify_artist_id != ''
+                and tw_streams > 10000
+                and m.pct_chg > 0
+        """
+        df = self.db.execute(string)
+
+        spotify_artist_ids = df[['spotify_artist_id']].drop_duplicates(subset='spotify_artist_id').reset_index(drop=True)
+
+        string = """
+            create temp table tmp_spotify_artist_ids (
+                spotify_artist_id text
+            );
+        """
+        self.reporting_db.execute(string)
+        self.reporting_db.big_insert_redshift(spotify_artist_ids, 'tmp_spotify_artist_ids')
+
+        string = """
+            with max_date as (
+                select max(to_date(timestp, 'YYYY-MM-DD')) as max_date
+                from chartmetric_raw.cm_artist_rank
+            ), tp as (
+                select
+                    spotify_artist_id,
+                    date,
+                    rnk
+                from (
+                    select
+                        t.spotify_artist_id,
+                        ar.timestp as date,
+                        ar.rank_25_75 as rnk,
+                        row_number() over (partition by t.spotify_artist_id order by ar.rank_25_75 desc nulls last) as rnk_order
+                    from tmp_spotify_artist_ids t
+                    left join chartmetric_raw.spotify_artist sa on t.spotify_artist_id = sa.spotify_artist_id
+                    left join chartmetric_raw.cm_artist_rank ar on sa.cm_artist = ar.cm_artist
+                    where ar.timestp = ( select max_date from max_date )
+                        and ar.rank_25_75 is not null
+                    order by t.spotify_artist_id, ar.rank_25_75 desc nulls last
+                ) q
+                where rnk_order = 1
+            ), lp as (
+                select
+                    spotify_artist_id,
+                    date,
+                    rnk
+                from (
+                    select
+                        t.spotify_artist_id,
+                        ar.timestp as date,
+                        ar.rank_25_75 as rnk,
+                        row_number() over (partition by t.spotify_artist_id order by ar.rank_25_75 desc nulls last) as rnk_order
+                    from tmp_spotify_artist_ids t
+                    left join chartmetric_raw.spotify_artist sa on t.spotify_artist_id = sa.spotify_artist_id
+                    left join chartmetric_raw.cm_artist_rank ar on sa.cm_artist = ar.cm_artist
+                    where to_date(ar.timestp, 'YYYY-MM-DD') = ( select max_date - interval '1 week' from max_date )
+                        and ar.rank_25_75 is not null
+                    order by t.spotify_artist_id, ar.rank_25_75 desc nulls last
+                ) q
+                where rnk_order = 1
+            )
+
+            select
+                q.spotify_artist_id,
+                q.rnk,
+                q.last_rnk,
+                case
+                    when last_rnk is null then null
+                    else (last_rnk - rnk)
+                end as rnk_chg
+            from (
+                select
+                    tp.spotify_artist_id,
+                    tp.date,
+                    tp.rnk,
+                    lp.rnk as last_rnk
+                from tp
+                left join lp on tp.spotify_artist_id = lp.spotify_artist_id
+            ) q
+            where rnk < 50000 and (rnk_chg is null or rnk_chg > 1000)
+            order by rnk_chg desc
+        """
+        xdf = self.reporting_db.execute(string)
+
+        self.reporting_db.execute('drop table tmp_spotify_artist_ids')
+
+        # Merge the metatdata with the chartmetric data and sort by rnk_chg keeping nulls first because they are new artists
+        df = pd.merge(df, xdf, how='inner', on='spotify_artist_id').sort_values(by='rnk_chg', ascending=False, na_position='first').reset_index(drop=True)
+        df.drop(columns=['spotify_artist_id'], inplace=True)
+
+        # Fix null values
+        df['last_rnk'] = df['last_rnk'].replace(np.nan, None)
+        df['rnk_chg'] = df['rnk_chg'].replace(np.nan, None)
+        df = df.astype({
+            'last_rnk': 'Int64',
+            'rnk_chg': 'Int64'
+        })
+
+        string = """
+            create temp table tmp_artist (
+                artist_id int,
+                artist text,
+                tw_streams int,
+                pct_chg float,
+                rtd_oda_streams bigint,
+                tw_streams_ex_us int,
+                genres text,
+                spotify_url text,
+                graphitti_url text,
+                rnk int,
+                last_rnk int,
+                rnk_chg int
+            );
+        """
+        self.db.execute(string)
+        self.db.big_insert(df, 'tmp_artist')
+
+        string = """
+            create temp table tmp_artist_data as (
+                select
+                    ta.*,
+                    case
+                        when crg.artist_id is null then true
+                        else false
+                    end as is_new
+                from tmp_artist ta
+                left join social_charts.cm_rank_growth crg on ta.artist_id = crg.artist_id
+            );
+
+            delete from social_charts.cm_rank_growth;
+
+            insert into social_charts.cm_rank_growth
+            select * from tmp_artist_data;
+
+            drop table tmp_artist_data;
+            drop table tmp_artist;
+        """
+        self.db.execute(string)
+
+        # Get our updated data from the table
+        string = """
+            select *
+            from social_charts.cm_rank_growth
+            order by rnk_chg desc
+        """
+        df = self.db.execute(string)
+        df.to_csv(self.reports_fullfiles['cm_rank_growth'], index=False)
+    
     def sendReports(self, recipients, filenames):
 
         """
@@ -5254,7 +5421,8 @@ class NielsenDailyUSPipeline(PipelineBase):
             self.reports_fullfiles['new_artists_in_genres_tw_streams'],
             self.reports_fullfiles['ig_follower_growth'],
             self.reports_fullfiles['sp_follower_growth'],
-            self.reports_fullfiles['tt_follower_growth']
+            self.reports_fullfiles['tt_follower_growth'],
+            self.reports_fullfiles['cm_rank_growth']
         ]
 
         recipients = [
@@ -5414,6 +5582,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth', error_on_failure=False)
         self.add_function(self.report_spotifyLongTermFollowerGrowth, 'Report Spotify Long Term Growth', error_on_failure=False)
         self.add_function(self.report_shazamViralGrowth, 'Report Shazam Viral Growth', error_on_failure=False)
+        self.add_function(self.report_chartmetricRankGrowth, 'Report Chartmetric Rank Growth', error_on_failure=False)
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
 
     def test_build(self):
