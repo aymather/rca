@@ -226,6 +226,9 @@ class NielsenDailyGlobalPipeline(PipelineBase):
 
             df = df.rename(columns=rename_artist_columns)
 
+            # If nielsen wrongly puts null for the artist name, we'll just default to unknown because that column is required
+            df['artist'] = df['artist'].fillna('Unknown')
+
             # Separate into meta and streaming info
             meta_columns = [ 'unified_artist_id', 'artist' ]
             streams_columns = [ 'unified_artist_id', current_day, previous_day ]
@@ -337,6 +340,10 @@ class NielsenDailyGlobalPipeline(PipelineBase):
             }
 
             df = df.rename(columns=song_rename_columns)
+
+            # If nielsen wrongly puts null for the artist name or title, we'll just default to unknown because those columns are required
+            df['artist'] = df['artist'].fillna('Unknown')
+            df['title'] = df['title'].fillna('Unknown')
 
             # Separate into meta and streams
             meta_columns = [ 'unified_song_id', 'title', 'artist', 'isrc' ]

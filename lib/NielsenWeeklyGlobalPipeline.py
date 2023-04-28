@@ -162,6 +162,9 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
         ]
         df.drop(columns=drop_columns, inplace=True)
 
+        # If nielsen wrongly puts null for the artist name, we'll just default to unknown because that column is required
+        df['artist'] = df['artist'].fillna('Unknown')
+
         # Drop duplicates just in case
         df = df.drop_duplicates(subset='unified_artist_id').reset_index(drop=True)
 
@@ -224,6 +227,10 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
             *df.filter(regex='Digital Song Sales').columns.tolist()
         ]
         df.drop(columns=drop_columns, inplace=True)
+
+        # If nielsen wrongly puts null for the artist name or title, we'll just default to unknown because those columns are required
+        df['artist'] = df['artist'].fillna('Unknown')
+        df['title'] = df['title'].fillna('Unknown')
 
         # Drop duplicates just in case
         df = df.drop_duplicates(subset=['unified_song_id'], keep='first').reset_index(drop=True)

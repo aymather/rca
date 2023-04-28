@@ -474,6 +474,9 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         df.drop(columns=drop_columns, errors='ignore', inplace=True)
 
+        # If nielsen wrongly puts null for the artist name, we'll just default to unknown because that column is required
+        df['artist'] = df['artist'].fillna('Unknown')
+
         # Add signed column
         df['signed'] = False
 
@@ -841,6 +844,10 @@ class NielsenDailyUSPipeline(PipelineBase):
         ]
 
         df = df.drop(columns=drop_columns)
+
+        # If nielsen wrongly puts null for the artist name or title, we'll just default to unknown because those columns are required
+        df['artist'] = df['artist'].fillna('Unknown')
+        df['title'] = df['title'].fillna('Unknown')
 
         # Drop rows that have a null unified_song_id
         df = df[~df['unified_song_id'].isnull()].reset_index(drop=True)
