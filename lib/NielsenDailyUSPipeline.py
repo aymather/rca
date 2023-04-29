@@ -163,7 +163,9 @@ class NielsenDailyUSPipeline(PipelineBase):
             'sp_follower_long_term_growth': os.path.join(self.folders['exports'], f'sp_follower_long_term_growth_{formatted_date}.csv'),
             'shazam_viral_growth': os.path.join(self.folders['exports'], f'shazam_viral_growth_{formatted_date}.csv'),
             'cm_rank_growth': os.path.join(self.folders['exports'], f'cm_rank_growth_{formatted_date}.csv'),
-            'cm_fb_growth': os.path.join(self.folders['exports'], f'cm_fb_growth_{formatted_date}.csv')
+            'cm_fb_growth': os.path.join(self.folders['exports'], f'cm_fb_growth_{formatted_date}.csv'),
+            'cm_eg_growth': os.path.join(self.folders['exports'], f'cm_eg_growth_{formatted_date}.csv'),
+            'cm_ranks_combined': os.path.join(self.folders['exports'], f'cm_ranks_combined_{formatted_date}.csv')
         }
 
     def downloadFiles(self):
@@ -5449,6 +5451,201 @@ class NielsenDailyUSPipeline(PipelineBase):
             """
             self.db.execute(string)
         
+        def updsteRankEg(df):
+
+            string = """
+                with tp as (
+                    select
+                        spotify_artist_id,
+                        date,
+                        rnk
+                    from (
+                        select
+                            t.spotify_artist_id,
+                            ar.timestp as date,
+                            ar.rank_eg as rnk,
+                            row_number() over (partition by t.spotify_artist_id order by ar.rank_eg desc nulls last) as rnk_order
+                        from tmp_spotify_artist_ids t
+                        left join chartmetric_raw.spotify_artist sa on t.spotify_artist_id = sa.spotify_artist_id
+                        left join chartmetric_raw.cm_artist_rank ar on sa.cm_artist = ar.cm_artist
+                        where ar.timestp = ( select max_date from max_date )
+                            and ar.rank_eg is not null
+                        order by t.spotify_artist_id, ar.rank_eg desc nulls last
+                    ) q
+                    where rnk_order = 1
+                ), lp as (
+                    select
+                        spotify_artist_id,
+                        date,
+                        rnk
+                    from (
+                        select
+                            t.spotify_artist_id,
+                            ar.timestp as date,
+                            ar.rank_eg as rnk,
+                            row_number() over (partition by t.spotify_artist_id order by ar.rank_eg desc nulls last) as rnk_order
+                        from tmp_spotify_artist_ids t
+                        left join chartmetric_raw.spotify_artist sa on t.spotify_artist_id = sa.spotify_artist_id
+                        left join chartmetric_raw.cm_artist_rank ar on sa.cm_artist = ar.cm_artist
+                        where to_date(ar.timestp, 'YYYY-MM-DD') = ( select max_date - interval '1 week' from max_date )
+                            and ar.rank_eg is not null
+                        order by t.spotify_artist_id, ar.rank_eg desc nulls last
+                    ) q
+                    where rnk_order = 1
+                )
+
+                select
+                    q.spotify_artist_id,
+                    q.rnk,
+                    q.last_rnk,
+                    case
+                        when last_rnk is null then null
+                        else (last_rnk - rnk)
+                    end as rnk_chg
+                from (
+                    select
+                        tp.spotify_artist_id,
+                        tp.date,
+                        tp.rnk,
+                        lp.rnk as last_rnk
+                    from tp
+                    left join lp on tp.spotify_artist_id = lp.spotify_artist_id
+                ) q
+                where rnk < 50000 and (rnk_chg is null or rnk_chg > 1000)
+                order by rnk_chg desc
+            """
+            xdf = self.reporting_db.execute(string)
+
+            # Merge the metatdata with the chartmetric data and sort by rnk_chg keeping nulls first because they are new artists
+            df = pd.merge(df, xdf, how='inner', on='spotify_artist_id').sort_values(by='rnk_chg', ascending=False, na_position='first').reset_index(drop=True)
+            df.drop(columns=['spotify_artist_id'], inplace=True)
+
+            # Fix null values
+            df['last_rnk'] = df['last_rnk'].replace(np.nan, None)
+            df['rnk_chg'] = df['rnk_chg'].replace(np.nan, None)
+            df = df.astype({
+                'last_rnk': 'Int64',
+                'rnk_chg': 'Int64'
+            })
+
+            string = """
+                create temp table tmp_artist (
+                    artist_id int,
+                    artist text,
+                    tw_streams int,
+                    pct_chg float,
+                    rtd_oda_streams bigint,
+                    tw_streams_ex_us int,
+                    genres text,
+                    spotify_url text,
+                    graphitti_url text,
+                    rnk int,
+                    last_rnk int,
+                    rnk_chg int
+                );
+            """
+            self.db.execute(string)
+            self.db.big_insert(df, 'tmp_artist')
+
+            string = """
+                create temp table tmp_artist_data as (
+                    select
+                        ta.*,
+                        case
+                            when crg.artist_id is null then true
+                            else false
+                        end as is_new
+                    from tmp_artist ta
+                    left join social_charts.cm_eg_growth crg on ta.artist_id = crg.artist_id
+                );
+
+                delete from social_charts.cm_eg_growth;
+
+                insert into social_charts.cm_eg_growth
+                select * from tmp_artist_data;
+
+                drop table tmp_artist_data;
+                drop table tmp_artist;
+            """
+            self.db.execute(string)
+        
+        def updateRanksCombined():
+
+            string = """
+                create temp table tmp_data as (
+                    select
+                        ta.*,
+                        case
+                            when rc.artist_id is null then true
+                            else false
+                        end as is_new
+                    from (
+                        select
+                            r.artist_id,
+                            r.artist,
+                            r.tw_streams,
+                            r.pct_chg,
+                            r.rnk as cm_rank,
+                            r.rnk_chg as cm_rank_chg,
+                            f.rnk as cm_fanbase_rank,
+                            f.rnk_chg as cm_fanbase_rank_chg,
+                            e.rnk as cm_engagement_rank,
+                            e.rnk_chg as cm_engagement_rank_chg,
+                            r.rtd_oda_streams,
+                            r.tw_streams_ex_us,
+                            r.genres,
+                            r.spotify_url,
+                            r.graphitti_url
+                        from social_charts.cm_rank_growth r
+                        join social_charts.cm_fb_growth f on r.artist_id = f.artist_id
+                        join social_charts.cm_eg_growth e on r.artist_id = e.artist_id
+                    ) ta
+                    left join social_charts.cm_ranks_combined rc on ta.artist_id = rc.artist_id
+                );
+
+                delete from social_charts.cm_ranks_combined;
+
+                insert into social_charts.cm_ranks_combined (
+                    artist_id,
+                    artist,
+                    tw_streams,
+                    pct_chg,
+                    cm_rank,
+                    cm_rank_chg,
+                    cm_fanbase_rank,
+                    cm_fanbase_rank_chg,
+                    cm_engagement_rank,
+                    cm_engagement_rank_chg,
+                    rtd_oda_streams,
+                    tw_streams_ex_us,
+                    genres,
+                    spotify_url,
+                    graphitti_url,
+                    is_new
+                )
+                select
+                    artist_id,
+                    artist,
+                    tw_streams,
+                    pct_chg,
+                    cm_rank,
+                    cm_rank_chg,
+                    cm_fanbase_rank,
+                    cm_fanbase_rank_chg,
+                    cm_engagement_rank,
+                    cm_engagement_rank_chg,
+                    rtd_oda_streams,
+                    tw_streams_ex_us,
+                    genres,
+                    spotify_url,
+                    graphitti_url,
+                    is_new
+                from tmp_data;
+
+                drop table tmp_data;
+            """
+            self.db.execute(string)
+        
         # Get ids from postgres
         string = """
             select
@@ -5491,18 +5688,35 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         self.reporting_db.execute(string)
 
+        # Update each rank chart
         updateRank_25_75(df)
         updateRankFb(df)
+        updsteRankEg(df)
+
+        # Do this after you've updated each individual chart
+        updateRanksCombined()
 
         # Generate reports as files to send in emails
+
+        # Rank 25-75 (Chartmetric Rank)
         string = """select * from social_charts.cm_rank_growth order by rnk_chg desc"""
         df = self.db.execute(string)
         df.to_csv(self.reports_fullfiles['cm_rank_growth'], index=False)
 
-        # Generate reports as files to send in emails
+        # Fanbase Rank
         string = """select * from social_charts.cm_fb_growth order by rnk_chg desc"""
         df = self.db.execute(string)
         df.to_csv(self.reports_fullfiles['cm_fb_growth'], index=False)
+
+        # Engagement Rank
+        string = """select * from social_charts.cm_eg_growth order by rnk_chg desc"""
+        df = self.db.execute(string)
+        df.to_csv(self.reports_fullfiles['cm_eg_growth'], index=False)
+
+        # Combined Ranks
+        string = """select * from social_charts.cm_ranks_combined order by cm_rank_chg desc"""
+        df = self.db.execute(string)
+        df.to_csv(self.reports_fullfiles['cm_ranks_combined'], index=False)
 
         # Drop the temporary tables from the session
         string = """
@@ -5564,7 +5778,9 @@ class NielsenDailyUSPipeline(PipelineBase):
             self.reports_fullfiles['sp_follower_growth'],
             self.reports_fullfiles['tt_follower_growth'],
             self.reports_fullfiles['cm_rank_growth'],
-            self.reports_fullfiles['cm_fb_growth']
+            self.reports_fullfiles['cm_fb_growth'],
+            self.reports_fullfiles['cm_eg_growth'],
+            self.reports_fullfiles['cm_ranks_combined']
         ]
 
         recipients = [
@@ -5748,6 +5964,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         # self.add_function(self.report_genres, 'Genres Reports', error_on_failure=False)
         # self.add_function(self.updateArtistSocialCharts, 'Update Artist Social Charts')
         # self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth')
-        self.add_function(self.report_shazamViralGrowth, 'Report Shazam Viral Growth', error_on_failure=False)
+        # self.add_function(self.report_shazamViralGrowth, 'Report Shazam Viral Growth', error_on_failure=False)
+        self.add_function(self.report_chartmetricRankGrowth, 'Report Chartmetric Rank Growth', error_on_failure=False)
 
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
