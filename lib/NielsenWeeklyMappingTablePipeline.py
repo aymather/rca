@@ -372,8 +372,7 @@ class NielsenWeeklyMappingTablePipeline(PipelineBase):
                 m.id,
                 map.unified_collection_id
             from nielsen_song.meta m
-            left join nielsen_map.map on m.unified_song_id = map.unified_song_id
-            where map.unified_collection_id is not null
+            join nielsen_map.map on m.unified_song_id = map.unified_song_id
             group by m.id, map.unified_collection_id
             on conflict (song_id, unified_collection_id) do nothing
         """
