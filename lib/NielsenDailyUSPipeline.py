@@ -5945,9 +5945,6 @@ class NielsenDailyUSPipeline(PipelineBase):
 
     def test_build(self):
 
-        # Always set the settings to test regardless of command line arguments
-        self.settings['is_testing'] = True
-
         # self.add_function(self.downloadFiles, 'Download Files')
         # self.add_function(self.validateSession, 'Validate Session')
         # self.add_function(self.processArtists, 'Process Artists')
