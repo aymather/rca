@@ -12,6 +12,7 @@ from .lib.Email import Email
 from .lib.Aws import Aws
 from .lib.RapidApi import RapidApi
 from .lib.BinnedModel import BinnedModel
+from .lib.ServiceApi import ServiceApi
 
 from .lib.settings import get_settings
 
@@ -20,6 +21,7 @@ from .lib.NielsenDailyGlobalPipeline import NielsenDailyGlobalPipeline
 from .lib.NielsenWeeklyMappingTablePipeline import NielsenWeeklyMappingTablePipeline
 from .lib.WeeklyFunctionsPipeline import WeeklyFunctionsPipeline
 from .lib.NielsenWeeklyGlobalPipeline import NielsenWeeklyGlobalPipeline
+from .lib.NielsenDailyProjectsPipeline import NielsenDailyProjectsPipeline
 
 from .lib.RCAResearchTeamScheduler import RCAResearchTeamScheduler
 
