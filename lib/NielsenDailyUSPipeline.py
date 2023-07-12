@@ -1726,7 +1726,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     where id not in (select artist_id from nielsen_artist.spotify)
                         and is_global is false
                 ) m
-                left join nielsen_artist.artist_tracks art on m.artist_id = art.artist_id
+                left join nielsen_artist.__artist_tracks art on m.artist_id = art.artist_id
                 left join nielsen_song.spotify sp on sp.song_id = art.song_id
                 group by
                     m.artist_id,
