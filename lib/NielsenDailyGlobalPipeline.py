@@ -432,9 +432,8 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         local_fullfile = os.path.join(LOCAL_DOWNLOAD_FOLDER, file['filename'])
         s3_fullfile = GLOBAL_S3_UPLOAD_FOLDER_TEMPLATE.format(file['filename'])
 
-        # Download files from the server if they don't exist already
-        if os.path.exists(local_fullfile) is False:
-            self.sftp_conn.get(remote_fullfile, local_fullfile)
+        # Download files from the server
+        self.sftp_conn.get(remote_fullfile, local_fullfile)
 
         try:
 
