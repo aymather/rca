@@ -436,6 +436,8 @@ class NielsenDailyUSPipeline(PipelineBase):
             'LW Rank': 'lw_rank',
             'Artist': 'artist',
             'UnifiedArtistID': 'unified_artist_id',
+            'TD On-Demand Video': 'td_odv',
+            'TD Digital Track Sales': 'td_dts',
             'TW On-Demand Audio Streams': 'tw_oda_streams',
             'LW On-Demand Audio Streams': 'lw_oda_streams',
             'L2W_On_Demand_Audio_Streams': 'l2w_oda_streams',
@@ -462,6 +464,8 @@ class NielsenDailyUSPipeline(PipelineBase):
         # Drop unnecessary columns
         drop_columns = [
             'lw_rank',
+            'td_odv',
+            'td_dts',
             'lw_oda_streams',
             'l2w_oda_streams',
             'weekly_pct_chg_oda_streams',
@@ -940,7 +944,20 @@ class NielsenDailyUSPipeline(PipelineBase):
         new_signed = signed_df[(~signed_df['artist'].isin(signed_existing['artist'])) & (~signed_df['artist'].isnull())].reset_index(drop=True)
         
         # Upload newly signed artists to the tracker
-        self.db.big_insert(new_signed, 'misc.signed_artists')
+        string = """
+            create temp table tmp_signed_artists (
+                artist text
+            );
+        """
+        self.db.execute(string)
+        self.db.big_insert(new_signed, 'tmp_signed_artists')
+        string = """
+            insert into misc.signed_artists
+            select artist from tmp_signed_artists
+            on conflict (artist) do nothing;
+        """
+        self.db.execute(string)
+        self.db.execute('drop table tmp_signed_artists')
         print(f'Inserted {new_signed.shape[0]} new signed artists to tracker...')
 
     def prepareSongData(self, df):
