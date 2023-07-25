@@ -1,3 +1,4 @@
+from tenacity import retry, stop_after_attempt, wait_fixed
 from IPython.display import clear_output
 from datetime import datetime as dt
 from .Spotify import Spotify
@@ -11,6 +12,20 @@ import string
 import shutil
 import os
 
+
+def request_wrapper(func):
+
+    """
+
+        Wrapper on top of requests for retries
+    
+    """
+    
+    @retry(stop=stop_after_attempt(5), wait=wait_fixed(0.5))
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    return wrapper
 
 def test():
     print('RCA Library Test Function: ' + dt.now().strftime('%Y-%m-%d %H:%M:%S'))

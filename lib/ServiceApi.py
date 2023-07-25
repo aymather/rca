@@ -1,5 +1,8 @@
+from .env import X_SERVICE_TOKEN
+from .functions import request_wrapper, chunker
 import requests
 import json
+
 
 class ServiceApi:
 
@@ -14,9 +17,40 @@ class ServiceApi:
     def __init__(self):
         self.base_url = 'https://prod-api.graphitti.io/api/service/v2'
 
-    def getDominantColors(self, image_urls):
+    def headers(self):
 
         """
+        
+            Get the headers required to make requests to the service api.
+        
+        """
+
+        return {
+            'Content-Type': 'application/json',
+            'x-service-token': X_SERVICE_TOKEN
+        }
+    
+    @request_wrapper
+    def _post(self, url, data = {}):
+
+        """
+        
+            @param url(str): The url to make the POST request to
+            @param data(dict): The data to send in the POST request
+        
+            This method is used to make a POST request to the service api.
+        
+        """
+
+        # Make the POST request
+        response = requests.post(url, headers=self.headers(), data=json.dumps(data))
+        return response.json()
+
+    def get_dominant_colors(self, image_urls):
+
+        """
+
+            @param image_urls(str[]): An array of image urls
         
             This method takes an array of image urls and returns an array of
             objects with the dominant colors of each image.
@@ -41,17 +75,16 @@ class ServiceApi:
         # Define the URL for the POST request
         url = self.base_url + '/dominant-colors'
 
-        # Define the headers for the POST request
-        headers = {
-            'Content-Type': 'application/json',
-            'x-service-token': 'oN8TB0T93C7ZgZG2LldsDiF2'
-        }
-
         # Define the JSON body for the POST request
-        data = {
-            'image_urls': image_urls
-        }
+        data = { 'image_urls': image_urls }
 
-        # Make the POST request
-        response = requests.post(url, headers=headers, data=json.dumps(data))
-        return response.json()
+        # Our api can only handle so many of these at a time, so we need to
+        # chunk the image urls into groups
+        chunk_size = 100
+        data = []
+        chunks = chunker(image_urls, chunk_size)
+        for chunk in chunks:
+            data += self._post(url, { 'image_urls': chunk })
+
+        return data
+    

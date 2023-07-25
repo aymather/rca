@@ -1,4 +1,5 @@
 from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, REPORTS_FOLDER
+from .ServiceApi import ServiceApi
 from .PipelineBase import PipelineBase
 from .functions import chunker, getSpotifyTrackDataFromSpotifyUsingIsrcTitleAndArtist, getDominantColor
 from .Sftp import Sftp
@@ -2232,15 +2233,22 @@ class NielsenDailyUSPipeline(PipelineBase):
             left join nielsen_song.spotify sp on m.id = sp.song_id
             where spotify_image is not null
                 and spotify_image != ''
-                and m.dominant_color = '#000000'
+                and dominant_color = '#000000'
         """
         df = self.db.execute(string)
 
         if not df.empty:
 
-            # Get the dominant color of each spotify image
-            df['dominant_color'] = df['spotify_image'].apply(getDominantColor)
-            df.drop(columns=['spotify_image'], inplace=True)
+            # Now we need to update the dominant colors for each song that we just got data for
+            # We do this by getting dominant colors for each spotify_image from the service api
+            service = ServiceApi()
+            spotify_images = df.spotify_image.dropna().unique().tolist()
+            dominant_colors = service.get_dominant_colors(spotify_images)
+            dc = pd.DataFrame(dominant_colors, columns=[ 'image_url', 'dominant_color' ])
+
+            # Merge the dominant colors with the song ids so that we can update it in n_songs.meta
+            df = pd.merge(df, dc, left_on='spotify_image', right_on='image_url', how='inner')
+            df.drop(columns=[ 'spotify_image', 'image_url' ], inplace=True) # end with columns [ song_id, dominant_color ]
 
             # Update the database
             string = """
@@ -2272,15 +2280,21 @@ class NielsenDailyUSPipeline(PipelineBase):
             left join nielsen_artist.spotify sp on m.id = sp.artist_id
             where spotify_image is not null
                 and spotify_image != ''
-                and m.dominant_color = '#000000'
+                and dominant_color = '#000000'
         """
         df = self.db.execute(string)
 
         if not df.empty:
 
-            # Get the dominant color of each spotify image
-            df['dominant_color'] = df['spotify_image'].apply(getDominantColor)
-            df.drop(columns=['spotify_image'], inplace=True)
+            # Get the unique, non-null spotify image urls and pass to the service api for dominant color calculation
+            service = ServiceApi()
+            spotify_images = df.spotify_image.dropna().unique().tolist()
+            dominant_colors = service.get_dominant_colors(spotify_images)
+            dc = pd.DataFrame(dominant_colors, columns=[ 'image_url', 'dominant_color' ])
+
+            # Merge the dominant colors with the artist ids so that we can update it in n_artists.meta
+            df = pd.merge(df, dc, left_on='spotify_image', right_on='image_url', how='inner')
+            df.drop(columns=[ 'spotify_image', 'image_url' ], inplace=True) # end with columns [ artist_id, dominant_color ]
 
             string = """
                 create temp table tmp_colors (
@@ -5982,3 +5996,4 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.add_function(self.report_chartmetricRankGrowth, 'Report Chartmetric Rank Growth', error_on_failure=False)
 
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
+
