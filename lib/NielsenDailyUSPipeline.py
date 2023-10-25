@@ -5759,18 +5759,16 @@ class NielsenDailyUSPipeline(PipelineBase):
     
     def report_indieLongTermGrowth(self):
 
-        genres = ['alternative country', 'alternative rock', 'alt z', 'art pop',
+        genres = ['alternative country', 'alt z', 'art pop',
        'classic country pop', 'contemporary country', 'country',
        'country dawn', 'country pop', 'country road', 'country rock',
        'deep new americana', 'dream pop', 'electropop', 'folk',
        'freak folk', 'garage pop', 'garage psych', 'indiecoustica',
-       'indie electropop', 'indie folk', 'indie garage rock', 'indie pop',
-       'indie poptimism', 'indie rock', 'modern alternative rock',
+       'indie electropop', 'indie folk', 'modern alternative rock',
        'modern country rock', 'modern rock', 'neo-psychedelic',
-       'new americana', 'outlaw country', 'pop rock', 'post-punk',
-       'red dirt', 'rock', 'roots americana', 'roots rock',
-       'stomp and holler', 'texas country', 'vapor soul', 'classic oklahoma country',
-       'oklahoma country', 'pov: indie']
+       'new americana', 'outlaw country', 'post-punk',
+       'red dirt', 'roots americana', 'vapor soul', 'classic oklahoma country',
+       'stomp and holler', 'texas country', 'oklahoma country', 'pov: indie']
         
         string = """
             select
