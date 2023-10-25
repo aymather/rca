@@ -166,7 +166,8 @@ class NielsenDailyUSPipeline(PipelineBase):
             'cm_rank_growth': os.path.join(self.folders['exports'], f'cm_rank_growth_{formatted_date}.csv'),
             'cm_fb_growth': os.path.join(self.folders['exports'], f'cm_fb_growth_{formatted_date}.csv'),
             'cm_eg_growth': os.path.join(self.folders['exports'], f'cm_eg_growth_{formatted_date}.csv'),
-            'cm_ranks_combined': os.path.join(self.folders['exports'], f'cm_ranks_combined_{formatted_date}.csv')
+            'cm_ranks_combined': os.path.join(self.folders['exports'], f'cm_ranks_combined_{formatted_date}.csv'),
+            'indie_long_term_growth': os.path.join(self.folders['exports'], f'indie_long_term_growth_{formatted_date}.csv'),
         }
 
     def downloadFiles(self):
@@ -5756,6 +5757,81 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         self.reporting_db.execute(string)
     
+    def report_indieLongTermGrowth(self):
+
+        genres = ['alternative country', 'alternative rock', 'alt z', 'art pop',
+       'classic country pop', 'contemporary country', 'country',
+       'country dawn', 'country pop', 'country road', 'country rock',
+       'deep new americana', 'dream pop', 'electropop', 'folk',
+       'freak folk', 'garage pop', 'garage psych', 'indiecoustica',
+       'indie electropop', 'indie folk', 'indie garage rock', 'indie pop',
+       'indie poptimism', 'indie rock', 'modern alternative rock',
+       'modern country rock', 'modern rock', 'neo-psychedelic',
+       'new americana', 'outlaw country', 'pop rock', 'post-punk',
+       'red dirt', 'rock', 'roots americana', 'roots rock',
+       'stomp and holler', 'texas country', 'vapor soul', 'classic oklahoma country',
+       'oklahoma country', 'pov: indie']
+        
+        string = """
+            select
+                m.artist_id,
+                m.artist,
+                q.positive_weeks,
+                m.tw_streams,
+                m.pct_chg,
+                m.rtd_oda_streams,
+                m.track_count,
+                m.genres,
+                'https://graphitti.io/artists/' || m.artist_id as graphitti_url
+            from (
+            select
+                    artist_id,
+                    sum(is_greater) as positive_weeks
+                from (
+                    select
+                        q.artist_id,
+                        case
+                            when streams > lag_streams then 1
+                            else 0
+                        end as is_greater
+                    from (
+                        select
+                            q.*,
+                            coalesce(lag(streams) over (partition by artist_id order by weekly), 0) as lag_streams
+                        from (
+                            select
+                                a.artist_id,
+                                date_trunc('week', s.date) as weekly,
+                                sum(streams) as streams
+                            from (
+                                select a.*
+                                from nielsen_genres.__artists a
+                                left join nielsen_artist.__artist m on a.artist_id = m.artist_id
+                                where genre = any(%(genres)s)
+                                    and m.signed is false
+                                    and m.tw_streams > %(streaming_floor)s
+                            ) a
+                            left join nielsen_artist.streams s on a.artist_id = s.artist_id
+                            where s.date > current_date - interval '6 months'
+                            group by a.artist_id, weekly
+                        ) q
+                    ) q
+                ) q
+                group by artist_id
+            ) q
+            left join nielsen_artist.__artist m on q.artist_id = m.artist_id
+            order by positive_weeks desc
+        """
+        params = {
+            'genres': genres,
+            'streaming_floor': 100000
+        }
+        df = self.db.execute(string, params)
+
+        df = df[df['positive_weeks'] > 10].sort_values('positive_weeks', ascending=False).reset_index(drop=True)
+
+        df.to_csv(self.reports_fullfiles['indie_long_term_growth'], index=False)
+    
     def sendReports(self, recipients, filenames):
 
         """
@@ -5833,10 +5909,19 @@ class NielsenDailyUSPipeline(PipelineBase):
             self.reports_fullfiles['shazam_viral_growth']
         ]
 
-        recipients = [
-            'kat.kusion@rcarecords.com'
+        recipients = [ 'kat.kusion@rcarecords.com', 'alec.mather@rcarecords.com' ]
+        self.sendReports(recipients, filenames)
+
+        """
+        
+            This block is for dan
+        
+        """
+        filenames = [
+            self.reports_fullfiles['indie_long_term_growth']
         ]
 
+        recipients = [ 'dan.chertoff@rcarecords.com', 'alec.mather@rcarecords.com' ]
         self.sendReports(recipients, filenames)
 
     def build(self):
@@ -5972,6 +6057,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.add_function(self.report_spotifyLongTermFollowerGrowth, 'Report Spotify Long Term Growth', error_on_failure=False)
         self.add_function(self.report_shazamViralGrowth, 'Report Shazam Viral Growth', error_on_failure=False)
         self.add_function(self.report_chartmetricRankGrowth, 'Report Chartmetric Rank Growth', error_on_failure=False)
+        self.add_function(self.report_indieLongTermGrowth, 'Report Indie Long Term Growth', error_on_failure=False)
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
 
     def test_build(self):
@@ -5993,7 +6079,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         # self.add_function(self.updateArtistSocialCharts, 'Update Artist Social Charts')
         # self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth')
         # self.add_function(self.report_shazamViralGrowth, 'Report Shazam Viral Growth', error_on_failure=False)
-        self.add_function(self.report_chartmetricRankGrowth, 'Report Chartmetric Rank Growth', error_on_failure=False)
-
+        # self.add_function(self.report_chartmetricRankGrowth, 'Report Chartmetric Rank Growth', error_on_failure=False)
+        self.add_function(self.report_indieLongTermGrowth, 'Report Indie Long Term Growth', error_on_failure=False)
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
 
