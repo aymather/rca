@@ -1,5 +1,6 @@
 from tenacity import retry, stop_after_attempt, wait_fixed
 from IPython.display import clear_output
+import Levenshtein as lev
 from datetime import datetime as dt
 from .Spotify import Spotify
 from urllib.request import urlopen
@@ -318,3 +319,176 @@ def getSpotifyTrackDataFromSpotifyUsingIsrcTitleAndArtist(df):
     df = getSpotifyAudioFeatureData(df)
 
     return df
+
+def match2Nielsen(df, db):
+
+    # Shazam match 2 nielsen
+    def hasMatch(a, t, n_artists, n_titles):
+        
+        for i in range(len(n_artists)):
+            
+            n_artist = n_artists[i].lower()
+            n_title = n_titles[i].lower()
+            
+            if (lev.ratio(a, n_artist) > 0.75) or \
+            (n_artist.find(a) != -1) or \
+            (a.find(n_artist) != -1):
+                
+                if lev.ratio(t, n_title) > 0.75:
+                    
+                    return i
+                
+                else:
+                    
+                    n_title = n_title.split('(')[0]
+                    n_title = str(n_title)
+                    n_title = n_title.split('   ')[0]
+                    n_title = str(n_title)
+
+                    if lev.ratio(t, n_title) > 0.75:
+                        return i
+                
+        return False
+
+    def match2NielsenFilter(row, n_artists, n_titles, n_song_id):
+        
+        a = row['artist'].lower()
+        t = row['title'].lower()
+        
+        idx = hasMatch(a, t, n_artists, n_titles)
+        if idx != False:
+        
+            return n_song_id[idx]
+        
+        return None
+    
+    string = """
+        select
+            rr.song_id,
+            m.artist,
+            m.title
+        from nielsen_song.__reports_recent rr
+        join nielsen_song.meta m on rr.song_id = m.id
+    """
+    nielsen = db.execute(string)
+    
+    # Convert to numpy arrays
+    n_artists = nielsen['artist'].values
+    n_titles = nielsen['title'].values
+    n_song_id = nielsen['song_id'].values
+    
+    # Run function
+    df['song_id'] = df.apply(match2NielsenFilter, n_artists=n_artists, n_titles=n_titles, n_song_id=n_song_id, axis=1)
+    
+    return df
+
+def is_array_in_string(substring_array, string):
+    """Check if any of the substrings in an array are in a string.
+    
+    This function is basically the same idea as `is_substring_in_array`, except
+    it's the reverse. It checks if any of the strings in the array are contained
+    in the single string.
+    
+    Parameters
+    ----------
+    substring_array : str[]
+        The array of substrings to check for.
+    string : str
+        The string to check in.
+    
+    Returns
+    -------
+    bool
+        True if any of the substrings in the array are contained in the string, False otherwise.
+    
+    Examples
+    --------
+    >>> from rca.lib.etc import is_array_in_string
+    >>> is_array_in_string(['abc', 'def'], 'abcdef')
+    True
+    >>> is_array_in_string(['abc', 'def'], 'ghi')
+    False
+    """
+    
+    for substring in substring_array:
+        if substring in string:
+            return True
+    return False
+
+def filter_signed_artists_with_nielsen_label_list(df, db):
+    """Filter a dataframe of artists based on the nielsen labels list in the database: `misc.nielsen_labels`
+    
+    This function takes in a dataframe with a `label` column which is the label name
+    given to us in the nielsen data. They have a very specific process for naming labels
+    that are associated with each song, and we can use this to determine if the artist
+    is signed or not.
+
+    The `df` passed is expected to have a column called `label` which is the label name from nielsen.
+    The `df` can also optionally have an existing `signed` column which is a boolean value
+        representing whether the artist is signed or not. If this column does not exist, it will
+        be created.
+    
+    Parameters
+    ----------
+    df[label, signed]
+        The dataframe to filter. Must have a `label` column.
+    db : Db
+        Database connection: rca_db_prod
+    
+    Returns
+    -------
+    df[label, signed]
+        The same dataframe that was passed, but with a `signed` column altered / added.
+    
+    Examples
+    --------
+    >>> from rca.lib.processing.nielsen.us_daily.utils.signed_filters import filter_signed_artists_with_nielsen_label_list
+    >>> from rca.lib.clients import Db
+    >>> db = Db('rca_db_prod')
+    >>> df = filter_signed_artists_with_nielsen_label_list(df, db)
+    >>> df.head()
+        label  signed
+    0   label1    True
+    1   label2   False
+    2   label3    True
+    """
+
+    # Validate that the df has a label column
+    if 'label' not in df.columns:
+        raise ValueError('The dataframe passed to `filter_signed_artists_with_nielsen_label_list` must have a `label` column.')
+    
+    # Check if the `signed` column exists
+    # If not, create it and assume that none of the artists are signed
+    if 'signed' not in df.columns:
+        df['signed'] = False
+
+    # Get the list of nielsen labels from the database.
+    # This list has been specifically curated for this process.
+    # For example, in this list we have `Columbia` because we know that if a record
+    # is released on `Columbia`, then it is a signed record.
+    # However, this list does not include certain nielsen labels such as `The Orchard`
+    # because we still consider that a competivie record that we could potentially go after.
+    nielsen_labels_df = db.execute('select lower(label) as label from misc.nielsen_labels')
+    nielsen_labels = nielsen_labels_df.label.values
+
+    def fn(row):
+
+        # If the `signed` column is already True, return True
+        if row['signed'] is True:
+            return True
+
+        # If the label is null, return False
+        if pd.isnull(row['label']):
+            return False
+        
+        # If the label is in the nielsen labels list, return True
+        if is_array_in_string(nielsen_labels, row['label'].lower()):
+            return True
+        
+        # Otherwise, just assume that the artist is not signed
+        return False
+
+    df['signed'] = df.apply(fn, axis=1)
+
+    return df
+
