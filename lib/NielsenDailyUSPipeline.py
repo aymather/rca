@@ -5245,7 +5245,10 @@ class NielsenDailyUSPipeline(PipelineBase):
         df['graphitti_url'] = 'https://graphitti.io/artists/' + df['artist_id'].astype('str')
 
         # Rename for clarity
-        df.rename(columns={ 'date': 'recent_spotify_date' }, inplace=True)
+        df.rename(columns={
+            'date': 'recent_spotify_date',
+            'genres': 'spotify_genres'
+        }, inplace=True)
 
         # Sort columns
         columns = [
@@ -5263,7 +5266,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             'streams_pct_chg',
             'rtd_oda_streams',
             'tw_streams_ex_us',
-            'genres',
+            'spotify_genres',
             'spotify_url',
             'graphitti_url'
         ]
@@ -5291,7 +5294,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 streams_pct_chg float,
                 rtd_oda_streams int,
                 tw_streams_ex_us int,
-                genres text,
+                spotify_genres text,
                 spotify_url text,
                 graphitti_url text
             );
@@ -5316,7 +5319,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     td.streams_pct_chg,
                     td.rtd_oda_streams,
                     td.tw_streams_ex_us,
-                    td.genres,
+                    td.spotify_genres,
                     td.spotify_url,
                     td.graphitti_url,
                     case
@@ -5344,7 +5347,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 streams_pct_chg,
                 rtd_oda_streams,
                 tw_streams_ex_us,
-                genres,
+                spotify_genres,
                 spotify_url,
                 graphitti_url,
                 is_new
@@ -6189,7 +6192,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         # self.add_function(self.report_genius, 'Genius Scrape', error_on_failure=False)
         # self.add_function(self.report_spotifyArtistStatGrowth, 'Spotify Artist Stat Growth', error_on_failure=False)
         # self.add_function(self.report_dailySongs, 'Daily Songs', error_on_failure=False)
-        self.add_function(self.report_shazam, 'Shazam', error_on_failure=False)
+        # self.add_function(self.report_shazam, 'Shazam', error_on_failure=False)
         # self.add_function(self.report_artist8WeekGrowth, 'Artist 8 Week Growth', error_on_failure=False)
         # self.add_function(self.report_song8WeekGrowth, 'Song 8 Week Growth', error_on_failure=False)
         # self.add_function(self.report_nielsenWeeklyAudio, 'Nielsen Weekly Audio', error_on_failure=False)
@@ -6199,5 +6202,6 @@ class NielsenDailyUSPipeline(PipelineBase):
         # self.add_function(self.report_shazamViralGrowth, 'Report Shazam Viral Growth', error_on_failure=False)
         # self.add_function(self.report_chartmetricRankGrowth, 'Report Chartmetric Rank Growth', error_on_failure=False)
         # self.add_function(self.report_indieLongTermGrowth, 'Report Indie Long Term Growth', error_on_failure=False)
+        self.add_function(self.report_spotifyLongTermFollowerGrowth, 'Report Spotify Long Term Growth', error_on_failure=False)
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
 
