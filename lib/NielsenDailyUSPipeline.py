@@ -4248,6 +4248,9 @@ class NielsenDailyUSPipeline(PipelineBase):
             data = self.reporting_db.execute(string)
             shazam = pd.merge(shazam, data, how='left', on='isrc')
 
+            # Drop the temp table to stay clean
+            self.reporting_db.execute('drop table tmp_isrcs')
+
             # Use our list of labels and the spotify copyrights to filter signed things
             shazam = filter_signed_artists_with_nielsen_label_list(shazam, self.db)
 
@@ -4387,7 +4390,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         xdf = self.reporting_db.execute(string)
 
         # Drop the temp table to stay clean
-        self.reporting_db.execute('drop table if exists tmp_isrcs')
+        self.reporting_db.execute('drop table tmp_isrcs')
 
         # Clean types
         xdf['date'] = pd.to_datetime(xdf['date'])
@@ -5455,7 +5458,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     pct_chg float,
                     rtd_oda_streams bigint,
                     tw_streams_ex_us int,
-                    genres text,
+                    spotify_genres text,
                     spotify_url text,
                     graphitti_url text,
                     rnk int,
@@ -5573,7 +5576,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     pct_chg float,
                     rtd_oda_streams bigint,
                     tw_streams_ex_us int,
-                    genres text,
+                    spotify_genres text,
                     spotify_url text,
                     graphitti_url text,
                     rnk int,
@@ -5691,7 +5694,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     pct_chg float,
                     rtd_oda_streams bigint,
                     tw_streams_ex_us int,
-                    genres text,
+                    spotify_genres text,
                     spotify_url text,
                     graphitti_url text,
                     rnk int,
@@ -5748,7 +5751,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                             e.rnk_chg as cm_engagement_rank_chg,
                             r.rtd_oda_streams,
                             r.tw_streams_ex_us,
-                            r.genres,
+                            r.spotify_genres,
                             r.spotify_url,
                             r.graphitti_url
                         from social_charts.cm_rank_growth r
@@ -5773,7 +5776,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     cm_engagement_rank_chg,
                     rtd_oda_streams,
                     tw_streams_ex_us,
-                    genres,
+                    spotify_genres,
                     spotify_url,
                     graphitti_url,
                     is_new
@@ -5791,7 +5794,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     cm_engagement_rank_chg,
                     rtd_oda_streams,
                     tw_streams_ex_us,
-                    genres,
+                    spotify_genres,
                     spotify_url,
                     graphitti_url,
                     is_new
@@ -5810,7 +5813,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 m.pct_chg,
                 m.rtd_oda_streams,
                 m.tw_streams_ex_us,
-                m.genres,
+                m.genres as spotify_genres,
                 sp.url as spotify_url,
                 'https://graphitti.io/artist/' || m.artist_id as graphitti_url,
                 m.spotify_artist_id
@@ -6200,8 +6203,8 @@ class NielsenDailyUSPipeline(PipelineBase):
         # self.add_function(self.updateArtistSocialCharts, 'Update Artist Social Charts')
         # self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth')
         # self.add_function(self.report_shazamViralGrowth, 'Report Shazam Viral Growth', error_on_failure=False)
-        # self.add_function(self.report_chartmetricRankGrowth, 'Report Chartmetric Rank Growth', error_on_failure=False)
+        self.add_function(self.report_chartmetricRankGrowth, 'Report Chartmetric Rank Growth', error_on_failure=False)
         # self.add_function(self.report_indieLongTermGrowth, 'Report Indie Long Term Growth', error_on_failure=False)
-        self.add_function(self.report_spotifyLongTermFollowerGrowth, 'Report Spotify Long Term Growth', error_on_failure=False)
+        # self.add_function(self.report_spotifyLongTermFollowerGrowth, 'Report Spotify Long Term Growth', error_on_failure=False)
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
 
