@@ -456,7 +456,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
             self.sftp_conn.get(fullfile, fullfile)
 
         # Read, clean and update
-        df = pd.read_csv(fullfile, delimiter='\t', encoding='UTF-16')
+        df = pd.read_csv(fullfile, delimiter='\t', encoding='UTF-8')
 
         return df
     

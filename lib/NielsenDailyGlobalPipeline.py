@@ -438,7 +438,7 @@ class NielsenDailyGlobalPipeline(PipelineBase):
         try:
 
             # Read, clean and update
-            df = pd.read_csv(local_fullfile, delimiter='\t', encoding='UTF-8')
+            df = pd.read_csv(local_fullfile, delimiter='\t', encoding='UTF-16')
 
             # Subset if we're testing
             if self.settings['is_testing'] == True:
