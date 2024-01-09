@@ -8,3 +8,8 @@ pysftp
 spotipy
 python-dotenv
 psutil
+tenacity
+boto3
+matplotlib
+IPython
+colorthief
