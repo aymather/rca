@@ -1,23 +1,25 @@
-from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, REPORTS_FOLDER
-from .ServiceApi import ServiceApi
-from .PipelineBase import PipelineBase
-from .functions import chunker, filter_signed_artists_with_nielsen_label_list, match2Nielsen
-from .Sftp import Sftp
-from .BinnedModel import BinnedModel
-from .Spotify import Spotify
-from .Fuzz import Fuzz
-from .Db import Db
-from .RapidApi import RapidApi
-from .functions import today
-from datetime import datetime, timedelta
-from zipfile import ZipFile
-import requests
-import unicodedata
-from uuid import uuid4
-import pandas as pd
-import numpy as np
-import random
 import os
+import random
+import unicodedata
+from datetime import datetime, timedelta
+from uuid import uuid4
+from zipfile import ZipFile
+
+import numpy as np
+import pandas as pd
+import requests
+
+from .BinnedModel import BinnedModel
+from .Db import Db
+from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, REPORTS_FOLDER
+from .functions import (chunker, filter_signed_artists_with_nielsen_label_list,
+                        match2Nielsen, today)
+from .Fuzz import Fuzz
+from .PipelineBase import PipelineBase
+from .RapidApi import RapidApi
+from .ServiceApi import ServiceApi
+from .Sftp import Sftp
+from .Spotify import Spotify
 
 NIELSEN_US_DAILY_ARCHIVE_FOLDER = '/' # location on nielsen's remote sftp server where the US daily files are located
 NIELSEN_US_DAILY_ZIP_FILENAME = 'RCA_AR_Daily_Report_{}.zip'
@@ -1018,7 +1020,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 tw_digital_track_sales int,
                 atd_digital_track_sales int,
                 tw_odv int,
-                atd_odv int,
+                atd_odv bigint,
                 signed boolean,
                 report_date date
             );
@@ -1887,7 +1889,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         # Create temp table for the new ids we're going to insert
         string = """
             create temp table tmp_ids (
-                artist_id int,
+                artist_id bigint,
                 spotify_artist_id text,
                 unified_artist_id text,
                 target_id text,
@@ -2188,12 +2190,12 @@ class NielsenDailyUSPipeline(PipelineBase):
         # Create temp tables
         string = """
             create temp table tmp_artists_signed (
-                artist_id int,
+                artist_id bigint,
                 report_date date
             );
 
             create temp table tmp_songs_signed (
-                song_id int,
+                song_id bigint,
                 report_date date
             );
         """
@@ -2254,7 +2256,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             # Update the database
             string = """
                 create temp table tmp_colors (
-                    song_id int,
+                    song_id bigint,
                     dominant_color text
                 );
             """
@@ -2299,7 +2301,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             string = """
                 create temp table tmp_colors (
-                    artist_id int,
+                    artist_id bigint,
                     dominant_color text
                 );
             """
@@ -4486,7 +4488,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         string = """
             create temp table tmp_shazam_gain (
-                song_id int,
+                song_id bigint,
                 isrc text,
                 artist text,
                 title text,
@@ -5284,7 +5286,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         string = """
             create temp table tmp_sp_follower_growth (
                 spotify_id int,
-                artist_id int,
+                artist_id bigint,
                 artist text,
                 sp_followers int,
                 sp_followers_7_days_ago int,
@@ -5452,7 +5454,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             string = """
                 create temp table tmp_artist (
-                    artist_id int,
+                    artist_id bigint,
                     artist text,
                     tw_streams int,
                     pct_chg float,
@@ -5570,7 +5572,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             string = """
                 create temp table tmp_artist (
-                    artist_id int,
+                    artist_id bigint,
                     artist text,
                     tw_streams int,
                     pct_chg float,
@@ -5688,7 +5690,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
             string = """
                 create temp table tmp_artist (
-                    artist_id int,
+                    artist_id bigint,
                     artist text,
                     tw_streams int,
                     pct_chg float,
@@ -5991,6 +5993,7 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         
             This block is for aaron, karl, and alec
+
         
         """
         filenames = [
@@ -6114,8 +6117,8 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.add_function(self.cacheChartmetricIds, 'Cache Chartmetric Ids', error_on_failure=False)
         self.add_function(self.updateGenres, 'Update Genres')
         self.add_function(self.filterSignedFromSpotifyCopyrights, 'Filter Signed from Spotify Copyrights')
-        self.add_function(self.updateSongsDominantColors, 'Update Songs Dominant Colors')
-        self.add_function(self.updateArtistsDominantColors, 'Update Artists Dominant Colors')
+        self.add_function(self.updateSongsDominantColors, 'Update Songs Dominant Colors', error_on_failure=False)
+        self.add_function(self.updateArtistsDominantColors, 'Update Artists Dominant Colors', error_on_failure=False)
 
         """
             Stage 6:

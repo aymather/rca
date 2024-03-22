@@ -521,9 +521,11 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                     select
                         coalesce(st.artist_id, ex.artist_id) as artist_id,
                         coalesce(ex.tw_streams, 0) + coalesce(st.tw_streams, 0) as tw_streams,
-                        coalesce(ex.lw_streams, 0) + coalesce(st.lw_streams, 0) as lw_streams
+                        coalesce(ex.lw_streams, 0) + coalesce(st.lw_streams, 0) as lw_streams,
+                        coalesce(ex.rtd_streams, 0) + coalesce(rr.rtd_oda_streams, 0) as rtd_streams
                     from ex_us ex
                     full outer join nielsen_artist.__stats st on ex.artist_id = st.artist_id
+                    left join nielsen_artist.__reports_recent rr on st.artist_id = rr.artist_id
                 ) q
                 cross join ( select * from nielsen_global.meta where country_code = 'GLOBAL' ) gm
             );
@@ -541,7 +543,7 @@ class NielsenWeeklyGlobalPipeline(PipelineBase):
                 digital_song_sales_tw = excluded.digital_song_sales_tw;
 
             insert into nielsen_artist.global_stats (global_id, artist_id, rnk, tw_streams, lw_streams, pct_chg, ytd_streams, rtd_streams, digital_song_sales_tw)
-            select global_id, artist_id, rnk, tw_streams, lw_streams, pct_chg, 0, 0, 0 from global
+            select global_id, artist_id, rnk, tw_streams, lw_streams, pct_chg, 0, rtd_streams, 0 from global
             on conflict (global_id, artist_id) do update
             set
                 rnk = excluded.rnk,
