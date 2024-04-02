@@ -6019,7 +6019,6 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         recipients = [
             'alec.mather@rcarecords.com',
-            'aaron.dombey@rcarecords.com',
             'karl.fricker@rcarecords.com'
         ]
 
