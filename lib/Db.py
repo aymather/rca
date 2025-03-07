@@ -1,13 +1,16 @@
-from .env import TMP_FOLDER, RCA_DB_PROD, RCA_DB_DEV, REPORTING_DB, AWS_ACCESS_KEY, AWS_SECRET_KEY
-from .Aws import Aws
-from datetime import datetime
-from psycopg2 import sql
-from psycopg2.extensions import register_adapter, AsIs
-import psycopg2.extras
-import psycopg2
-import pandas as pd
-import numpy as np
 import os
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+import psycopg2
+import psycopg2.extras
+from psycopg2 import sql
+from psycopg2.extensions import AsIs, register_adapter
+
+from .Aws import Aws
+from .env import (AWS_ACCESS_KEY, AWS_SECRET_KEY, RCA_DB_DEV, RCA_DB_PROD,
+                  REPORTING_DB, TMP_FOLDER)
 
 
 # Numpy type int64 adapter
@@ -29,7 +32,7 @@ db_connections = {
 
 class Db:
 
-    def __init__(self, db_name='rca_db'):
+    def __init__(self, db_name='rca_db_prod'):
 
         if db_name not in db_connections.keys():
             raise Exception(f'{db_name} is not a valid database connection name')
