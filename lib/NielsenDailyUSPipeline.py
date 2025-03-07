@@ -170,6 +170,7 @@ class NielsenDailyUSPipeline(PipelineBase):
             'cm_eg_growth': os.path.join(self.folders['exports'], f'cm_eg_growth_{formatted_date}.csv'),
             'cm_ranks_combined': os.path.join(self.folders['exports'], f'cm_ranks_combined_{formatted_date}.csv'),
             'indie_long_term_growth': os.path.join(self.folders['exports'], f'indie_long_term_growth_{formatted_date}.csv'),
+            'yallternative_long_term_growth': os.path.join(self.folders['exports'], f'yallternative_long_term_growth_{formatted_date}.csv'),
         }
 
     def downloadFiles(self):
@@ -5885,6 +5886,97 @@ class NielsenDailyUSPipeline(PipelineBase):
         """
         self.reporting_db.execute(string)
     
+    def report_yallternativeLongTermGrowth(self):
+
+        genres = ['alternative americana', 'alternative country',
+       'american folk revival', 'bluegrass', 'canadian americana',
+       'canadian contemporary country', 'canadian country',
+       'canadian singer-songwriter', 'classic texas country',
+       'cosmic american', 'denton tx indie', 'folk', 'jam band',
+       'jamgrass', 'kentucky indie', 'kentucky roots',
+       'mississippi indie', 'modern country pop', 'modern southern rock',
+       'nashville singer-songwriter', 'neo-traditional bluegrass',
+       'new americana', 'ok indie', 'outlaw country',
+       'progressive bluegrass', 'red dirt', 'roots americana',
+       'roots rock', 'saskatchewan indie', 'singer-songwriter',
+       'southern americana', 'southern rock', 'texas country',
+       'tulsa indie', 'west virginia indie']
+        
+        string = """
+            with dataset as (
+                select a.artist_id
+                from nielsen_genres.__artists a
+                left join nielsen_artist.__artist m on a.artist_id = m.artist_id
+                where genre = any(%(genres)s)
+                    and m.signed is false
+                    and m.tw_streams > %(streaming_floor)s
+            ), min_max_dates as (
+                select
+                    at.artist_id,
+                    min(release_date::date) as min_release_date,
+                    max(release_date::date) as max_release_date
+                from dataset d
+                join nielsen_artist.artist_tracks at on d.artist_id = at.artist_id
+                join nielsen_song.__song m on at.song_id = m.song_id
+                group by at.artist_id
+            ), ltg_dataset as (
+                select
+                    artist_id,
+                    sum(is_greater) as positive_weeks
+                from (
+                    select
+                        q.artist_id,
+                        case
+                            when streams > lag_streams then 1
+                            else 0
+                        end as is_greater
+                    from (
+                        select
+                            q.*,
+                            coalesce(lag(streams) over (partition by artist_id order by weekly), 0) as lag_streams
+                        from (
+                            select
+                                d.artist_id,
+                                date_trunc('week', s.date) as weekly,
+                                sum(streams) as streams
+                            from dataset d
+                            left join nielsen_artist.streams s on d.artist_id = s.artist_id
+                            where s.date > current_date - interval '6 months'
+                            group by d.artist_id, weekly
+                        ) q
+                    ) q
+                ) q
+                group by artist_id
+                having sum(is_greater) > %(num_positive_weeks_floor)s
+            )
+
+            select
+                d.artist_id,
+                d.positive_weeks,
+                mmd.min_release_date,
+                mmd.max_release_date,
+                m.artist_id,
+                m.artist,
+                m.tw_streams,
+                m.pct_chg,
+                m.rtd_oda_streams,
+                m.track_count,
+                m.genres,
+                'https://graphitti.io/artists/' || m.artist_id as graphitti_url
+            from ltg_dataset d
+            join min_max_dates mmd on d.artist_id = mmd.artist_id
+            left join nielsen_artist.__artist m on d.artist_id = m.artist_id
+            order by d.positive_weeks desc;
+        """
+        params = {
+            'genres': genres,
+            'streaming_floor': 50000,
+            'num_positive_weeks_floor': 10
+        }
+        df = self.db.execute(string, params)
+
+        df.to_csv(self.reports_fullfiles['yallternative_long_term_growth'], index=False)
+    
     def report_indieLongTermGrowth(self):
 
         genres = ['alternative country', 'alt z', 'art pop',
@@ -5946,6 +6038,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                 group by artist_id
             ) q
             left join nielsen_artist.__artist m on q.artist_id = m.artist_id
+            where positive_weeks > 10
             order by positive_weeks desc
         """
         params = {
@@ -5953,8 +6046,6 @@ class NielsenDailyUSPipeline(PipelineBase):
             'streaming_floor': 100000
         }
         df = self.db.execute(string, params)
-
-        df = df[df['positive_weeks'] > 10].sort_values('positive_weeks', ascending=False).reset_index(drop=True)
 
         df.to_csv(self.reports_fullfiles['indie_long_term_growth'], index=False)
     
@@ -6032,7 +6123,13 @@ class NielsenDailyUSPipeline(PipelineBase):
         filenames = [
             self.reports_fullfiles['sp_follower_growth'],
             self.reports_fullfiles['sp_follower_long_term_growth'],
-            self.reports_fullfiles['shazam_viral_growth']
+            self.reports_fullfiles['shazam_viral_growth'],
+            self.reports_fullfiles['artist_8_week_growth'],
+            self.reports_fullfiles['song_8_week_growth'],
+            self.reports_fullfiles['nielsen_daily_audio'],
+            self.reports_fullfiles['nielsen_weekly_audio'],
+            self.reports_fullfiles['growing_genres'],
+            self.reports_fullfiles['yallternative_long_term_growth']
         ]
 
         recipients = [ 'kat.kusion@rcarecords.com', 'alec.mather@rcarecords.com' ]
@@ -6179,11 +6276,12 @@ class NielsenDailyUSPipeline(PipelineBase):
         self.add_function(self.report_song8WeekGrowth, 'Song 8 Week Growth', error_on_failure=False)
         self.add_function(self.report_genres, 'Growing Genres Report', error_on_failure=False)
         self.add_function(self.report_nielsenWeeklyAudio, 'Nielsen Weekly Audio', error_on_failure=False)
+        self.add_function(self.report_indieLongTermGrowth, 'Report Indie Long Term Growth', error_on_failure=False)
+        self.add_function(self.report_yallternativeLongTermGrowth, 'Report Yallternative Long Term Growth', error_on_failure=False)
         self.add_function(self.report_artistSocialGrowth, 'Report Artist Social Growth', error_on_failure=False)
         self.add_function(self.report_spotifyLongTermFollowerGrowth, 'Report Spotify Long Term Growth', error_on_failure=False)
         self.add_function(self.report_shazamViralGrowth, 'Report Shazam Viral Growth', error_on_failure=False)
         self.add_function(self.report_chartmetricRankGrowth, 'Report Chartmetric Rank Growth', error_on_failure=False)
-        self.add_function(self.report_indieLongTermGrowth, 'Report Indie Long Term Growth', error_on_failure=False)
         self.add_function(self.emailReports, 'Email Reports', error_on_failure=False)
 
     def test_build(self):
