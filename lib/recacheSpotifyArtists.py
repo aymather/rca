@@ -20,7 +20,7 @@ def recacheSpotifyArtists():
         from (
             select spotify_artist_id
             from nielsen_artist.spotify
-            where spotify_artist_id is not null
+            where artist_id = 245704
             order by last_updated
         ) q
         limit 2000

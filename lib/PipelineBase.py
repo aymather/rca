@@ -1,12 +1,16 @@
-from .env import LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER, TMP_FOLDER, REPORTS_FOLDER, MAPPING_TABLE_FOLDER
-from simple_chalk import chalk
-from .Time import Time
-from .Email import Email
-from abc import abstractmethod, ABC
-from .settings import get_settings
-from .Db import Db
-from .Aws import Aws
 import os
+from abc import ABC, abstractmethod
+
+from simple_chalk import chalk
+
+from .Aws import Aws
+from .Db import Db
+from .Email import Email
+from .env import (LOCAL_ARCHIVE_FOLDER, LOCAL_DOWNLOAD_FOLDER,
+                  MAPPING_TABLE_FOLDER, REPORTS_FOLDER, TMP_FOLDER)
+from .settings import get_settings
+from .Time import Time
+
 
 class PipelineBase(ABC):
 

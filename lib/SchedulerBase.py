@@ -1,7 +1,8 @@
-from .settings import get_settings
 from abc import ABC, abstractmethod
-from .PipelineBase import PipelineBase
+
 from .Email import Email
+from .PipelineBase import PipelineBase
+from .settings import get_settings
 
 DAILY_REPORT_RECIPIENTS = [
     'alec.mather@rcarecords.com'

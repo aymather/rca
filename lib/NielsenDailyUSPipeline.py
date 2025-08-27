@@ -6194,7 +6194,7 @@ class NielsenDailyUSPipeline(PipelineBase):
                     = Depends on refreshArtistTracks / cacheSpotifySongs
                         : Small optimization by connecting artists to songs and their spotify artist ids
         """
-        self.add_function(self.cacheSpotifyArtists, 'Cache Spotify Artists', error_on_failure=False)
+        # self.add_function(self.cacheSpotifyArtists, 'Cache Spotify Artists', error_on_failure=False)
 
 
         """
