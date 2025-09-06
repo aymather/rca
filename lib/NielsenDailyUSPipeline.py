@@ -6083,7 +6083,7 @@ class NielsenDailyUSPipeline(PipelineBase):
 
         """
         
-            This block is for aaron, karl, and alec
+            This block is for karl, and alec
 
         
         """
@@ -6144,7 +6144,11 @@ class NielsenDailyUSPipeline(PipelineBase):
             self.reports_fullfiles['indie_long_term_growth']
         ]
 
-        recipients = [ 'dan.chertoff@rcarecords.com', 'alec.mather@rcarecords.com' ]
+        recipients = [
+            'dan.chertoff@rcarecords.com',
+            'max.popper@rcarecords.com',
+            'alec.mather@rcarecords.com'
+        ]
         self.sendReports(recipients, filenames)
 
     def build(self):

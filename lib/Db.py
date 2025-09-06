@@ -228,6 +228,101 @@ class Db:
 
         print('Copied successfully')
 
+    def big_unload_redshift(self, query, s3_path, file_format='CSV', download_local=False):
+        """
+        IMPORTANT:
+        This method will only work when the connection provided for
+        this database instance is for a redshift database.
+        
+        Bulk unload data from Redshift to S3 using the UNLOAD command.
+        This is the reverse operation of big_insert_redshift.
+        
+        @param query: SQL query to select data to unload
+        @param s3_path: S3 path where files will be stored (without s3:// prefix)
+        @param file_format: 'CSV' or 'PARQUET' (default: 'CSV')
+        @param download_local: If True, downloads the files locally after unload
+        @return: List of S3 file paths created
+        """
+        
+        # Validate file format
+        if file_format.upper() not in ['CSV', 'PARQUET']:
+            raise ValueError("file_format must be 'CSV' or 'PARQUET'")
+        
+        # Build the S3 path with timestamp to avoid conflicts
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        full_s3_path = f"s3://busd-rca-projects/{s3_path}/unload_{timestamp}_"
+        
+        # Build UNLOAD command based on format
+        if file_format.upper() == 'CSV':
+            unload_options = """
+                credentials 'aws_access_key_id={};aws_secret_access_key={}'
+                delimiter ','
+                header
+                null as 'NULL'
+                escape
+                addquotes
+            """.format(AWS_ACCESS_KEY, AWS_SECRET_KEY)
+        else:  # PARQUET
+            unload_options = """
+                credentials 'aws_access_key_id={};aws_secret_access_key={}'
+                format parquet
+            """.format(AWS_ACCESS_KEY, AWS_SECRET_KEY)
+        
+        # Build the complete UNLOAD SQL command
+        unload_sql = f"""
+            UNLOAD ('{query.replace("'", "''")}')
+            TO '{full_s3_path}'
+            {unload_options}
+        """
+        
+        print(f"Unloading data to S3 path: {full_s3_path}")
+        
+        # Execute the UNLOAD command
+        self.execute(unload_sql)
+        
+        print(f'Data unloaded successfully to S3 in {file_format} format')
+        
+        # If download_local is True, download the files
+        local_files = []
+        if download_local:
+            aws = Aws()
+            aws.connect_s3()
+            
+            # List files in the S3 path to download them
+            import boto3
+            s3_client = boto3.client('s3', 
+                                   aws_access_key_id=AWS_ACCESS_KEY, 
+                                   aws_secret_access_key=AWS_SECRET_KEY)
+            
+            # Extract bucket and prefix from full_s3_path
+            s3_prefix = f"{s3_path}/unload_{timestamp}_"
+            
+            try:
+                response = s3_client.list_objects_v2(
+                    Bucket='busd-rca-projects',
+                    Prefix=s3_prefix
+                )
+                
+                if 'Contents' in response:
+                    for obj in response['Contents']:
+                        s3_key = obj['Key']
+                        filename = os.path.basename(s3_key)
+                        local_file_path = os.path.join(TMP_FOLDER, filename)
+                        
+                        # Download the file
+                        s3_client.download_file('busd-rca-projects', s3_key, local_file_path)
+                        local_files.append(local_file_path)
+                        print(f'Downloaded: {local_file_path}')
+                
+            except Exception as e:
+                print(f'Error downloading files: {str(e)}')
+        
+        return {
+            's3_path': full_s3_path,
+            'local_files': local_files if download_local else [],
+            'format': file_format
+        }
+
     def copy_expert(self, df, string):
 
         """

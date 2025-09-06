@@ -1,5 +1,6 @@
-from .env import AWS_ACCESS_KEY, AWS_SECRET_KEY
 import boto3
+
+from .env import AWS_ACCESS_KEY, AWS_SECRET_KEY
 
 S3_BUCKET_NAME = 'busd-rca-projects'
 
@@ -65,3 +66,48 @@ class Aws:
 
         except BaseException as e:
             print(str(e))
+
+    def download_s3(self, s3_fullfile, local_fullfile):
+        """
+        Download a file from the s3 bucket to local storage
+        @param s3_fullfile: S3 key/path of the file to download
+        @param local_fullfile: Local path where the file will be saved
+        """
+        
+        if self.s3 is None:
+            raise Exception('Aws s3 client not connected, you must first call self.connect_s3()')
+        
+        try:
+            self.s3.download_file(S3_BUCKET_NAME, s3_fullfile, local_fullfile)
+            print(f'INFO: Downloaded {s3_fullfile} to {local_fullfile} successfully')
+            return True
+            
+        except FileNotFoundError:
+            print(f'ERROR: The file {s3_fullfile} was not found in S3')
+            return False
+            
+        except BaseException as e:
+            print(f'ERROR downloading file: {str(e)}')
+            return False
+
+    def list_s3_files(self, prefix=''):
+        """
+        List files in the S3 bucket with optional prefix filter
+        @param prefix: Optional prefix to filter files
+        @return: List of file keys
+        """
+        
+        if self.s3 is None:
+            raise Exception('Aws s3 client not connected, you must first call self.connect_s3()')
+        
+        try:
+            response = self.s3.list_objects_v2(Bucket=S3_BUCKET_NAME, Prefix=prefix)
+            
+            if 'Contents' in response:
+                return [obj['Key'] for obj in response['Contents']]
+            else:
+                return []
+                
+        except BaseException as e:
+            print(f'ERROR listing files: {str(e)}')
+            return []
